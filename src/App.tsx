@@ -71,6 +71,14 @@ export default function App() {
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
   const handleEditorMount = useCallback((editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+    // Ensure Cmd+Shift+P opens the command palette
+    editorInstance.addAction({
+      id: "xian.commandPalette",
+      label: "Open Command Palette",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP],
+      run: (ed) => { ed.trigger("keyboard", "editor.action.quickCommand", null); },
+    });
+
     // Register custom Xian commands in the command palette
     editorInstance.addAction({
       id: "xian.deploy",
