@@ -123,11 +123,16 @@ export default function App() {
   }, []);
 
   const openCommandPalette = useCallback(() => {
-    if (editorRef.current) {
-      editorRef.current.focus();
-      editorRef.current.trigger("keyboard", "editor.action.quickCommand", null);
+    const ed = editorRef.current;
+    if (!ed) {
+      ide.log("info", "Open a file first, then use Commands");
+      return;
     }
-  }, []);
+    ed.focus();
+    setTimeout(() => {
+      ed.trigger("xian", "editor.action.quickCommand", null);
+    }, 50);
+  }, [ide]);
 
   // Global Cmd/Ctrl+K to open command palette (doesn't conflict with browser)
   useEffect(() => {
