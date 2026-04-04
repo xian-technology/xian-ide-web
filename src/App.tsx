@@ -122,29 +122,39 @@ export default function App() {
     });
   }, []);
 
-  const openCommandPalette = useCallback(() => {
-    const ed = editorRef.current;
-    if (!ed) {
-      ide.log("info", "Open a file first, then use Commands");
-      return;
+  // If no editor, create a blank file so the palette can open
+  const ensureEditorAndOpenPalette = useCallback(() => {
+    if (!editorRef.current) {
+      // Create a blank file to mount the editor
+      ide.createFile("untitled.py", "");
+      // Wait for editor to mount then open palette
+      setTimeout(() => {
+        editorRef.current?.focus();
+        setTimeout(() => {
+          editorRef.current?.trigger("xian", "editor.action.quickCommand", null);
+        }, 50);
+      }, 100);
+    } else {
+      editorRef.current.focus();
+      setTimeout(() => {
+        editorRef.current?.trigger("xian", "editor.action.quickCommand", null);
+      }, 50);
     }
-    ed.focus();
-    setTimeout(() => {
-      ed.trigger("xian", "editor.action.quickCommand", null);
-    }, 50);
   }, [ide]);
 
-  // Global Cmd/Ctrl+K to open command palette (doesn't conflict with browser)
+  // Global keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      // Cmd/Ctrl+K — command palette
+      if ((e.metaKey || e.ctrlKey) && e.key === "k" && !e.shiftKey) {
         e.preventDefault();
-        openCommandPalette();
+        e.stopPropagation();
+        ensureEditorAndOpenPalette();
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [openCommandPalette]);
+    window.addEventListener("keydown", handler, true); // capture phase
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [ensureEditorAndOpenPalette]);
 
   // Auto-scroll console
   useEffect(() => {
@@ -427,7 +437,7 @@ export default function App() {
           {/* Command palette */}
           <button
             className="ide-btn ide-btn-ghost ide-btn-sm"
-            onClick={openCommandPalette}
+            onClick={ensureEditorAndOpenPalette}
             title="Command Palette (⌘K)"
           >
             <Command size={14} /> Commands
