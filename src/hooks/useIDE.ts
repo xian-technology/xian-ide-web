@@ -227,9 +227,8 @@ export function useIDE() {
       }
       setDeploying(true);
       try {
-        log("info", `Deploying contract "${name}"...`);
+        log("info", `Simulating deployment of "${name}"...`);
 
-        // Estimate stamps for deployment
         const estResult = await rpc.simulate({
           sender: walletAccount!,
           contract: "submission",
@@ -237,9 +236,14 @@ export function useIDE() {
           kwargs: { name, code },
         });
 
-        const stamps = estResult.success
-          ? Math.ceil(estResult.stampsUsed * 1.3)
-          : 500000;
+        if (!estResult.success) {
+          log("error", `Simulation failed: ${estResult.error ?? "Unknown error"}`);
+          setDeploying(false);
+          return;
+        }
+
+        const stamps = estResult.stampsUsed;
+        log("info", `Simulation OK — ${stamps.toLocaleString()} stamps needed. Sending to wallet...`);
 
         const result = await wallet.sendCall({
           contract: "submission",
@@ -268,7 +272,7 @@ export function useIDE() {
         return;
       }
       try {
-        log("info", `Executing ${contract}.${func}()...`);
+        log("info", `Simulating ${contract}.${func}()...`);
 
         let stampCount = stamps;
         if (!stampCount) {
@@ -278,7 +282,12 @@ export function useIDE() {
             function: func,
             kwargs,
           });
-          stampCount = est.success ? Math.ceil(est.stampsUsed * 1.3) : 50000;
+          if (!est.success) {
+            log("error", `Simulation failed: ${est.error ?? "Unknown error"}`);
+            return;
+          }
+          stampCount = est.stampsUsed;
+          log("info", `Simulation OK — ${stampCount.toLocaleString()} stamps. Sending to wallet...`);
         }
 
         const result = await wallet.sendCall({
