@@ -1,7 +1,8 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import * as rpc from "../lib/xian-client";
 import * as wallet from "../lib/wallet";
 import * as linter from "../lib/linter";
+import type { LintError } from "../lib/linter";
 
 export interface ContractFile {
   id: string;
@@ -23,10 +24,50 @@ export interface ContractMethod {
   arguments: Array<{ name: string; type: string }>;
 }
 
+const STORAGE_FILES = "xian-ide-files";
+const STORAGE_ACTIVE = "xian-ide-active-file";
+const STORAGE_NETWORK = "xian-ide-network-url";
+const DEFAULT_NETWORK = "http://127.0.0.1:26657";
+
+function loadFiles(): ContractFile[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_FILES);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (f): f is ContractFile =>
+        f && typeof f.id === "string" && typeof f.name === "string" && typeof f.code === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+function loadActiveId(files: ContractFile[]): string | null {
+  try {
+    const id = localStorage.getItem(STORAGE_ACTIVE);
+    if (!id) return null;
+    return files.some((f) => f.id === id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadNetwork(): string {
+  try {
+    return localStorage.getItem(STORAGE_NETWORK) || DEFAULT_NETWORK;
+  } catch {
+    return DEFAULT_NETWORK;
+  }
+}
+
 export function useIDE() {
-  // Files
-  const [files, setFiles] = useState<ContractFile[]>([]);
-  const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  // Files (persisted) — lazy init reads localStorage once
+  const [files, setFiles] = useState<ContractFile[]>(loadFiles);
+  const [activeFileId, setActiveFileId] = useState<string | null>(() =>
+    loadActiveId(loadFiles())
+  );
 
   // Console
   const [console, setConsole] = useState<ConsoleEntry[]>([]);
@@ -35,8 +76,8 @@ export function useIDE() {
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAccount, setWalletAccount] = useState<string | null>(null);
 
-  // Network
-  const [networkUrl, setNetworkUrl] = useState("http://127.0.0.1:26657");
+  // Network (persisted)
+  const [networkUrl, setNetworkUrl] = useState<string>(loadNetwork);
   const [networkOnline, setNetworkOnline] = useState(false);
 
   // Contract explorer
@@ -50,8 +91,31 @@ export function useIDE() {
   const [linting, setLinting] = useState(false);
   const [linterAvailable, setLinterAvailable] = useState(false);
 
-  const idCounter = useRef(0);
-  const genId = () => `f${++idCounter.current}`;
+  // Lint errors keyed by file id, so they survive rehydration and stay scoped
+  const [lintErrorsByFile, setLintErrorsByFile] = useState<Record<string, LintError[]>>({});
+  const lintErrors = activeFileId ? lintErrorsByFile[activeFileId] ?? [] : [];
+
+  // Random ID — collision-free without needing to inspect persisted files
+  const genId = () =>
+    `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+  // Persist
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_FILES, JSON.stringify(files));
+    } catch { /* quota or disabled */ }
+  }, [files]);
+  useEffect(() => {
+    try {
+      if (activeFileId) localStorage.setItem(STORAGE_ACTIVE, activeFileId);
+      else localStorage.removeItem(STORAGE_ACTIVE);
+    } catch { /* ignore */ }
+  }, [activeFileId]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_NETWORK, networkUrl);
+    } catch { /* ignore */ }
+  }, [networkUrl]);
 
   // ── Console ────────────────────────────────────────────────
 
@@ -94,6 +158,12 @@ export function useIDE() {
   const closeFile = useCallback(
     (id: string) => {
       setFiles((prev) => prev.filter((f) => f.id !== id));
+      setLintErrorsByFile((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       if (activeFileId === id) {
         setActiveFileId(() => {
           const remaining = files.filter((f) => f.id !== id);
@@ -103,6 +173,10 @@ export function useIDE() {
     },
     [activeFileId, files]
   );
+
+  const markFileSaved = useCallback((id: string) => {
+    setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, dirty: false } : f)));
+  }, []);
 
   // ── Network ────────────────────────────────────────────────
 
@@ -322,6 +396,30 @@ export function useIDE() {
     [log]
   );
 
+  const lintCurrentFile = useCallback(async () => {
+    if (!activeFile) { log("error", "No file open"); return; }
+    const fileId = activeFile.id;
+    setLinting(true);
+    try {
+      const result = await linter.lintCode(activeFile.code);
+      if (result.success) {
+        log("success", "Lint passed — no errors");
+        setLintErrorsByFile((prev) => ({ ...prev, [fileId]: [] }));
+      } else {
+        for (const err of result.errors) {
+          const loc = err.line ? ` (line ${err.line}${err.col ? `:${err.col}` : ""})` : "";
+          log("error", `[${err.code}]${loc} ${err.message}`);
+        }
+        log("error", `Lint: ${result.errors.length} error(s)`);
+        setLintErrorsByFile((prev) => ({ ...prev, [fileId]: result.errors }));
+      }
+    } catch (e) {
+      log("error", `Lint failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLinting(false);
+    }
+  }, [activeFile, log]);
+
   return {
     // Files
     files,
@@ -332,6 +430,7 @@ export function useIDE() {
     updateFileCode,
     renameFile,
     closeFile,
+    markFileSaved,
 
     // Console
     console,
@@ -367,25 +466,7 @@ export function useIDE() {
     // Linter
     linting,
     linterAvailable,
-    lintCurrentFile: useCallback(async () => {
-      if (!activeFile) { log("error", "No file open"); return; }
-      setLinting(true);
-      try {
-        const result = await linter.lintCode(activeFile.code);
-        if (result.success) {
-          log("success", "Lint passed — no errors");
-        } else {
-          for (const err of result.errors) {
-            const loc = err.line ? ` (line ${err.line}${err.col ? `:${err.col}` : ""})` : "";
-            log("error", `[${err.code}]${loc} ${err.message}`);
-          }
-          log("error", `Lint: ${result.errors.length} error(s)`);
-        }
-      } catch (e) {
-        log("error", `Lint failed: ${e instanceof Error ? e.message : String(e)}`);
-      } finally {
-        setLinting(false);
-      }
-    }, [activeFile, log]),
+    lintErrors,
+    lintCurrentFile,
   };
 }

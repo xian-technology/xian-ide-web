@@ -1,11 +1,38 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Editor, { type Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import {
   Upload, Search, Plus, X, Trash2, Terminal, Code2,
-  Wallet, FileCode, Plug, Braces, AlertTriangle, Command
+  Wallet, FileCode, Plug, Braces, AlertTriangle, Command,
+  Copy, Play, Send, Zap, MessageSquare,
 } from "lucide-react";
-import { useIDE } from "./hooks/useIDE";
+import { useIDE, type ContractMethod } from "./hooks/useIDE";
+import { TEMPLATES } from "./lib/contract-templates";
+import "./styles/ide.css";
+
+const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+const MOD = isMac ? "⌘" : "Ctrl";
+
+const NETWORK_PRESETS: Array<{ name: string; url: string }> = [
+  { name: "Local", url: "http://127.0.0.1:26657" },
+  { name: "Testnet", url: "https://testnet.xian.org" },
+  { name: "Mainnet", url: "https://node.xian.org" },
+];
+
+const STORAGE_SIDEBAR_W = "xian-ide-sidebar-width";
+const STORAGE_BOTTOM_H = "xian-ide-bottom-height";
+
+function loadNum(key: string, fallback: number, min: number, max: number): number {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  } catch {
+    return fallback;
+  }
+}
 
 function handleEditorWillMount(monaco: Monaco) {
   monaco.editor.defineTheme("xian-dark", {
@@ -45,8 +72,20 @@ function handleEditorWillMount(monaco: Monaco) {
     },
   });
 }
-import { TEMPLATES } from "./lib/contract-templates";
-import "./styles/ide.css";
+
+function parseArg(value: string, type: string): unknown {
+  const t = (type || "").toLowerCase();
+  if (value === "") return null;
+  if (t === "int" || t === "float" || t === "decimal" || t === "number") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : value;
+  }
+  if (t === "bool") return value.toLowerCase() === "true";
+  if (t === "list" || t === "dict" || t === "any" || t === "json") {
+    try { return JSON.parse(value); } catch { return value; }
+  }
+  return value;
+}
 
 export default function App() {
   const ide = useIDE();
@@ -54,86 +93,123 @@ export default function App() {
   const [showNetworkModal, setShowNetworkModal] = useState(false);
   const [networkInput, setNetworkInput] = useState(ide.networkUrl);
   const [contractInput, setContractInput] = useState("");
+  const [stateKey, setStateKey] = useState("");
   const [deployName, setDeployName] = useState("");
-  const [showTemplateMenu, setShowTemplateMenu] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [methodArgs, setMethodArgs] = useState<Record<string, Record<string, string>>>({});
+
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
   const ideRef = useRef(ide);
   const deployNameRef = useRef(deployName);
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => {
-    ideRef.current = ide;
-  }, [ide]);
-
-  useEffect(() => {
-    deployNameRef.current = deployName;
-  }, [deployName]);
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2000);
-  };
+  const contractInputRef = useRef<HTMLInputElement | null>(null);
+  const stateKeyInputRef = useRef<HTMLInputElement | null>(null);
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
-  const handleEditorMount = useCallback((editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco) => {
-    // Store editor ref so we can trigger command palette from UI
-    editorRef.current = editorInstance;
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([]);
 
-    // Register custom Xian commands in the command palette
-    editorInstance.addAction({
-      id: "xian.deploy",
-      label: "Xian: Deploy Contract",
-      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyD],
-      run: () => {
-        const i = ideRef.current;
-        const name = deployNameRef.current.trim();
-        if (!i.activeFile) { i.log("error", "No file open"); return; }
-        if (!name) { i.log("error", "Enter a contract name in the Deploy panel first"); return; }
-        if (!i.walletConnected) { i.log("error", "Connect wallet first"); return; }
-        i.deployContract(name, i.activeFile.code);
-      },
-    });
+  // Layout (persisted)
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    loadNum(STORAGE_SIDEBAR_W, 260, 180, 600)
+  );
+  const [bottomHeight, setBottomHeight] = useState(() =>
+    loadNum(STORAGE_BOTTOM_H, 240, 80, 600)
+  );
 
-    editorInstance.addAction({
-      id: "xian.lint",
-      label: "Xian: Lint Contract",
-      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL],
-      run: () => { ideRef.current.lintCurrentFile(); },
-    });
+  useEffect(() => { ideRef.current = ide; }, [ide]);
+  useEffect(() => { deployNameRef.current = deployName; }, [deployName]);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_SIDEBAR_W, String(sidebarWidth)); } catch { /* ignore */ }
+  }, [sidebarWidth]);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_BOTTOM_H, String(bottomHeight)); } catch { /* ignore */ }
+  }, [bottomHeight]);
 
-    editorInstance.addAction({
-      id: "xian.connectWallet",
-      label: "Xian: Connect Wallet",
-      run: () => { ideRef.current.connectWallet(); },
-    });
-
-    editorInstance.addAction({
-      id: "xian.loadFromChain",
-      label: "Xian: Load Contract from Chain",
-      run: () => {
-        const name = prompt("Contract name:");
-        if (name?.trim()) ideRef.current.loadContractFromChain(name.trim());
-      },
-    });
-
-    editorInstance.addAction({
-      id: "xian.queryState",
-      label: "Xian: Query State",
-      run: () => {
-        const key = prompt("State key (contract.variable:key):");
-        if (key?.trim()) ideRef.current.queryState(key.trim());
-      },
-    });
+  // Toast helpers
+  const showToast = useCallback((msg: string) => {
+    const id = `t${Date.now()}-${Math.random()}`;
+    setToasts((prev) => [...prev, { id, message: msg }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 2200);
   }, []);
 
-  // If no editor, create a blank file so the palette can open
+  // Apply lint errors as Monaco markers
+  useEffect(() => {
+    const ed = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!ed || !monaco) return;
+    const model = ed.getModel();
+    if (!model) return;
+    const markers = ide.lintErrors.map((e) => ({
+      severity: monaco.MarkerSeverity.Error,
+      message: `[${e.code}] ${e.message}`,
+      startLineNumber: e.line ?? 1,
+      endLineNumber: e.line ?? 1,
+      startColumn: e.col ?? 1,
+      endColumn: (e.col ?? 1) + 1,
+      source: "xian-linter",
+    }));
+    monaco.editor.setModelMarkers(model, "xian-lint", markers);
+  }, [ide.lintErrors, ide.activeFileId]);
+
+  // Editor mount
+  const handleEditorMount = useCallback(
+    (editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+      editorRef.current = editorInstance;
+      monacoRef.current = monaco;
+
+      editorInstance.addAction({
+        id: "xian.deploy",
+        label: "Xian: Deploy Contract",
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyD],
+        run: () => {
+          const i = ideRef.current;
+          const name = deployNameRef.current.trim();
+          if (!i.activeFile) { i.log("error", "No file open"); return; }
+          if (!name) { i.log("error", "Enter a contract name in the Deploy panel first"); return; }
+          if (!i.walletConnected) { i.log("error", "Connect wallet first"); return; }
+          i.deployContract(name, i.activeFile.code);
+        },
+      });
+
+      editorInstance.addAction({
+        id: "xian.lint",
+        label: "Xian: Lint Contract",
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL],
+        run: () => { ideRef.current.lintCurrentFile(); },
+      });
+
+      editorInstance.addAction({
+        id: "xian.connectWallet",
+        label: "Xian: Connect Wallet",
+        run: () => { ideRef.current.connectWallet(); },
+      });
+
+      editorInstance.addAction({
+        id: "xian.loadFromChain",
+        label: "Xian: Load Contract from Chain",
+        run: () => {
+          contractInputRef.current?.focus();
+          contractInputRef.current?.select();
+        },
+      });
+
+      editorInstance.addAction({
+        id: "xian.queryState",
+        label: "Xian: Query State",
+        run: () => {
+          stateKeyInputRef.current?.focus();
+          stateKeyInputRef.current?.select();
+        },
+      });
+    },
+    []
+  );
+
   const ensureEditorAndOpenPalette = useCallback(() => {
     if (!editorRef.current) {
-      // Create a blank file to mount the editor
       ide.createFile("untitled.py", "");
-      // Wait for editor to mount then open palette
       setTimeout(() => {
         editorRef.current?.focus();
         setTimeout(() => {
@@ -151,187 +227,330 @@ export default function App() {
   // Global keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Cmd/Ctrl+K — command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "k" && !e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
         ensureEditorAndOpenPalette();
       }
     };
-    window.addEventListener("keydown", handler, true); // capture phase
+    window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [ensureEditorAndOpenPalette]);
 
+  // Escape closes modals
+  useEffect(() => {
+    if (!showNetworkModal && !showTemplateModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowNetworkModal(false);
+        setShowTemplateModal(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showNetworkModal, showTemplateModal]);
+
+  const openNetworkModal = useCallback(() => {
+    setNetworkInput(ide.networkUrl);
+    setShowNetworkModal(true);
+  }, [ide.networkUrl]);
+
   // Auto-scroll console
   useEffect(() => {
-    consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [ide.console]);
+    if (bottomTab === "console") {
+      consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [ide.console, bottomTab]);
+
+  // Resizers
+  const startSidebarResize = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = sidebarWidth;
+      const move = (ev: PointerEvent) => {
+        setSidebarWidth(Math.max(180, Math.min(600, startW + ev.clientX - startX)));
+      };
+      const up = () => {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [sidebarWidth]
+  );
+
+  const startBottomResize = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = bottomHeight;
+      const move = (ev: PointerEvent) => {
+        setBottomHeight(Math.max(80, Math.min(600, startH - (ev.clientY - startY))));
+      };
+      const up = () => {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [bottomHeight]
+  );
+
+  const setMethodArg = useCallback((method: string, arg: string, value: string) => {
+    setMethodArgs((prev) => ({
+      ...prev,
+      [method]: { ...(prev[method] ?? {}), [arg]: value },
+    }));
+  }, []);
+
+  const buildKwargs = useCallback(
+    (m: ContractMethod): Record<string, unknown> => {
+      const args = methodArgs[m.name] ?? {};
+      const out: Record<string, unknown> = {};
+      for (const a of m.arguments) {
+        const raw = args[a.name];
+        if (raw !== undefined && raw !== "") out[a.name] = parseArg(raw, a.type);
+      }
+      return out;
+    },
+    [methodArgs]
+  );
+
+  const dirtyCount = useMemo(() => ide.files.filter((f) => f.dirty).length, [ide.files]);
 
   // ── Sidebar ─────────────────────────────────────────────────
 
   const sidebar = (
-    <div className="ide-sidebar">
-      {/* Files */}
-      <div className="sidebar-section" style={{ flex: 1, overflow: "auto" }}>
-        <div className="sidebar-header">
-          <span>Files</span>
-          <button
-            className="ide-btn ide-btn-ghost ide-btn-icon"
-            title="New file from template"
-            onClick={() => setShowTemplateMenu((v) => !v)}
-          >
-            <Plus size={14} />
-          </button>
-        </div>
-        {showTemplateMenu && (
-          <div style={{ padding: "0 8px 8px" }}>
-            {TEMPLATES.map((t) => (
+    <aside
+      className="ide-sidebar"
+      style={{ width: sidebarWidth }}
+      aria-label="Project sidebar"
+    >
+      <div className="sidebar-scroll">
+        {/* Files */}
+        <section className="sidebar-section sidebar-section-grow">
+          <div className="sidebar-header">
+            <span>Files</span>
+            <button
+              className="ide-btn ide-btn-ghost ide-btn-icon"
+              title="New file from template"
+              aria-label="New file from template"
+              onClick={() => setShowTemplateModal(true)}
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="sidebar-content">
+            {ide.files.length === 0 && (
+              <div className="sidebar-empty">
+                No files open. Create one or load from chain.
+              </div>
+            )}
+            {ide.files.map((f) => (
               <div
-                key={t.id}
-                className="file-item"
-                onClick={() => {
-                  ide.createFile(`${t.id}.py`, t.code);
-                  setShowTemplateMenu(false);
+                key={f.id}
+                className={`file-item ${ide.activeFileId === f.id ? "active" : ""}`}
+                onClick={() => ide.setActiveFileId(f.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    ide.setActiveFileId(f.id);
+                  }
                 }}
               >
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="file-item-name">
                   <FileCode size={14} />
-                  {t.name}
+                  <span className="file-item-label">{f.name}</span>
+                  {f.dirty && (
+                    <span
+                      className="dirty-dot"
+                      title="Unsaved changes"
+                      aria-label="Unsaved changes"
+                    />
+                  )}
+                </span>
+                <span
+                  className="file-item-close"
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={`Close ${f.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    ide.closeFile(f.id);
+                  }}
+                >
+                  <X size={12} />
                 </span>
               </div>
             ))}
           </div>
-        )}
-        <div className="sidebar-content">
-          {ide.files.length === 0 && (
-            <div style={{ color: "var(--muted)", fontSize: 12, padding: "8px 4px" }}>
-              No files open. Create one or load from chain.
-            </div>
-          )}
-          {ide.files.map((f) => (
-            <div
-              key={f.id}
-              className={`file-item ${ide.activeFileId === f.id ? "active" : ""}`}
-              onClick={() => ide.setActiveFileId(f.id)}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <FileCode size={14} />
-                {f.name}
-                {f.dirty && <span className="dirty-dot" />}
-              </span>
-              <span className="file-item-close" onClick={(e) => { e.stopPropagation(); ide.closeFile(f.id); }}>
-                <X size={12} />
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+        </section>
 
-      {/* Query State */}
-      <div className="sidebar-section">
-        <div className="sidebar-header">Query State</div>
-        <div className="sidebar-content">
-          <StateQuery onQuery={ide.queryState} />
-        </div>
-      </div>
-
-      {/* Load from chain */}
-      <div className="sidebar-section">
-        <div className="sidebar-header">Load from Chain</div>
-        <div className="sidebar-content">
-          <div className="field-group">
-            <input
-              className="ide-input ide-input-mono"
-              placeholder="contract_name"
-              value={contractInput}
-              onChange={(e) => setContractInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && contractInput.trim()) {
-                  ide.loadContractFromChain(contractInput.trim());
-                  setContractInput("");
-                }
-              }}
-            />
-            <div className="btn-row">
-              <button
-                className="ide-btn ide-btn-secondary ide-btn-sm"
-                style={{ flex: 1 }}
-                disabled={!contractInput.trim()}
-                onClick={() => {
-                  ide.loadContractFromChain(contractInput.trim());
-                  setContractInput("");
+        {/* Query State */}
+        <section className="sidebar-section">
+          <div className="sidebar-header">Query State</div>
+          <div className="sidebar-content">
+            <div className="field-group">
+              <input
+                ref={stateKeyInputRef}
+                className="ide-input ide-input-mono"
+                placeholder="contract.variable:key"
+                value={stateKey}
+                onChange={(e) => setStateKey(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && stateKey.trim()) {
+                    ide.queryState(stateKey.trim());
+                  }
                 }}
-              >
-                <Code2 size={12} /> Source
-              </button>
+                aria-label="State key"
+              />
               <button
                 className="ide-btn ide-btn-secondary ide-btn-sm"
-                style={{ flex: 1 }}
-                disabled={!contractInput.trim()}
-                onClick={() => ide.loadContractMethods(contractInput.trim())}
+                disabled={!stateKey.trim()}
+                onClick={() => ide.queryState(stateKey.trim())}
               >
-                <Braces size={12} /> Methods
+                <Search size={11} /> Query
               </button>
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* Lint & Deploy */}
-      <div className="sidebar-section">
-        <div className="sidebar-header">Lint & Deploy</div>
-        <div className="sidebar-content">
-          <div className="field-group">
-            <button
-              className="ide-btn ide-btn-secondary ide-btn-sm"
-              disabled={!ide.activeFile || ide.linting}
-              onClick={ide.lintCurrentFile}
-              style={{ width: "100%" }}
-            >
-              <AlertTriangle size={12} />
-              {ide.linting ? "Linting..." : "Lint Contract"}
-              {!ide.linterAvailable && <span style={{ fontSize: 10, opacity: 0.6 }}>(offline)</span>}
-            </button>
-            <input
-              className="ide-input ide-input-mono"
-              placeholder="contract_name"
-              value={deployName}
-              onChange={(e) => setDeployName(e.target.value)}
-            />
-            <button
-              className="ide-btn ide-btn-primary ide-btn-sm"
-              disabled={!ide.activeFile || !deployName.trim() || ide.deploying || !ide.walletConnected}
-              onClick={() => {
-                if (ide.activeFile) {
-                  ide.deployContract(deployName.trim(), ide.activeFile.code);
-                }
-              }}
-            >
-              <Upload size={12} />
-              {ide.deploying ? "Deploying..." : "Deploy Contract"}
-            </button>
+        {/* Load from chain */}
+        <section className="sidebar-section">
+          <div className="sidebar-header">Load from Chain</div>
+          <div className="sidebar-content">
+            <div className="field-group">
+              <input
+                ref={contractInputRef}
+                className="ide-input ide-input-mono"
+                placeholder="contract_name"
+                value={contractInput}
+                onChange={(e) => setContractInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && contractInput.trim()) {
+                    ide.loadContractFromChain(contractInput.trim());
+                    setContractInput("");
+                  }
+                }}
+                aria-label="Contract name to load"
+              />
+              <div className="btn-row">
+                <button
+                  className="ide-btn ide-btn-secondary ide-btn-sm"
+                  style={{ flex: 1 }}
+                  disabled={!contractInput.trim()}
+                  onClick={() => {
+                    ide.loadContractFromChain(contractInput.trim());
+                    setContractInput("");
+                  }}
+                >
+                  <Code2 size={12} /> Source
+                </button>
+                <button
+                  className="ide-btn ide-btn-secondary ide-btn-sm"
+                  style={{ flex: 1 }}
+                  disabled={!contractInput.trim()}
+                  onClick={() => {
+                    ide.loadContractMethods(contractInput.trim());
+                    setBottomTab("interact");
+                  }}
+                >
+                  <Braces size={12} /> Methods
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+        </section>
+
+        {/* Lint & Deploy */}
+        <section className="sidebar-section">
+          <div className="sidebar-header">Lint & Deploy</div>
+          <div className="sidebar-content">
+            <div className="field-group">
+              <button
+                className="ide-btn ide-btn-secondary ide-btn-sm sidebar-action"
+                disabled={!ide.activeFile || ide.linting}
+                onClick={ide.lintCurrentFile}
+                title={`Lint contract (${MOD}+Shift+L)`}
+              >
+                <span className="ide-btn-label">
+                  <AlertTriangle size={12} />
+                  {ide.linting ? "Linting..." : "Lint Contract"}
+                </span>
+                <span className="kbd">{MOD}⇧L</span>
+              </button>
+              {!ide.linterAvailable && (
+                <div className="sidebar-hint">Linter offline (start local server)</div>
+              )}
+              <input
+                className="ide-input ide-input-mono"
+                placeholder="contract_name"
+                value={deployName}
+                onChange={(e) => setDeployName(e.target.value)}
+                aria-label="Deploy contract name"
+              />
+              <button
+                className="ide-btn ide-btn-primary ide-btn-sm sidebar-action"
+                disabled={!ide.activeFile || !deployName.trim() || ide.deploying || !ide.walletConnected}
+                onClick={() => {
+                  if (ide.activeFile) {
+                    ide.deployContract(deployName.trim(), ide.activeFile.code);
+                  }
+                }}
+                title={`Deploy contract (${MOD}+Shift+D)`}
+              >
+                <span className="ide-btn-label">
+                  <Upload size={12} />
+                  {ide.deploying ? "Deploying..." : "Deploy Contract"}
+                </span>
+                <span className="kbd">{MOD}⇧D</span>
+              </button>
+            </div>
+          </div>
+        </section>
       </div>
-    </div>
+    </aside>
   );
 
   // ── Editor area ─────────────────────────────────────────────
 
   const editorArea = (
     <div className="ide-main">
-      {/* Tabs */}
-      <div className="editor-tabs">
+      <div className="editor-tabs" role="tablist" aria-label="Open files">
         {ide.files.map((f) => (
           <div
             key={f.id}
+            role="tab"
+            aria-selected={ide.activeFileId === f.id}
             className={`editor-tab ${ide.activeFileId === f.id ? "active" : ""}`}
             onClick={() => ide.setActiveFileId(f.id)}
           >
-            {f.dirty && <span className="dirty-dot" />}
+            {f.dirty && (
+              <span
+                className="dirty-dot"
+                title="Unsaved changes"
+                aria-label="Unsaved changes"
+              />
+            )}
             {f.name}
             <span
-              style={{ cursor: "pointer", opacity: 0.5, marginLeft: 4 }}
+              className="editor-tab-close"
+              role="button"
+              tabIndex={-1}
+              aria-label={`Close ${f.name}`}
               onClick={(e) => { e.stopPropagation(); ide.closeFile(f.id); }}
             >
               <X size={11} />
@@ -340,7 +559,6 @@ export default function App() {
         ))}
       </div>
 
-      {/* Editor */}
       <div className="editor-area">
         {ide.activeFile ? (
           <Editor
@@ -371,16 +589,25 @@ export default function App() {
         ) : (
           <div className="empty-state">
             <Code2 size={48} strokeWidth={1.2} />
-            <h2>Xian Contract IDE</h2>
+            <h2>Xian IDE</h2>
             <p>Create a new contract from a template, or load an existing contract from the chain.</p>
             <div className="template-grid">
               {TEMPLATES.map((t) => (
                 <div
                   key={t.id}
                   className="template-card"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => ide.createFile(`${t.id}.py`, t.code)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      ide.createFile(`${t.id}.py`, t.code);
+                    }
+                  }}
                 >
-                  {t.name}
+                  <FileCode size={14} />
+                  <span>{t.name}</span>
                 </div>
               ))}
             </div>
@@ -390,48 +617,162 @@ export default function App() {
     </div>
   );
 
-
   // ── Bottom panel ────────────────────────────────────────────
 
-  const bottomPanel = (
-    <div className="ide-bottom">
-      <div className="bottom-tabs">
-        <div
-          className={`bottom-tab ${bottomTab === "console" ? "active" : ""}`}
-          onClick={() => setBottomTab("console")}
-        >
-          <Terminal size={12} style={{ display: "inline", marginRight: 4, verticalAlign: -1 }} />
-          Console
-        </div>
-        <div style={{ flex: 1 }} />
-        <button className="ide-btn ide-btn-ghost ide-btn-sm" onClick={ide.clearConsole}>
-          <Trash2 size={11} /> Clear
-        </button>
-      </div>
-      <div className="bottom-content">
-        {ide.console.map((entry) => (
-          <div
-            key={entry.id}
-            className="console-entry"
-            style={{ cursor: "pointer" }}
-            title="Click to copy"
+  const consoleContent = (
+    <div className="bottom-content">
+      {ide.console.length === 0 && (
+        <div className="bottom-empty">No console output yet.</div>
+      )}
+      {ide.console.map((entry) => (
+        <div key={entry.id} className="console-entry">
+          <span className="console-time">
+            {new Date(entry.timestamp).toLocaleTimeString()}
+          </span>
+          <span className={`console-msg ${entry.type}`}>{entry.message}</span>
+          <button
+            className="console-copy"
+            title="Copy message"
+            aria-label="Copy console message"
             onClick={() => {
               navigator.clipboard.writeText(entry.message);
               showToast("Copied to clipboard");
             }}
           >
-            <span className="console-time">
-              {new Date(entry.timestamp).toLocaleTimeString()}
-            </span>
-            <span className={`console-msg ${entry.type}`}>{entry.message}</span>
+            <Copy size={11} />
+          </button>
+        </div>
+      ))}
+      <div ref={consoleEndRef} />
+    </div>
+  );
+
+  const interactContent = (
+    <div className="bottom-content">
+      {!ide.explorerContract ? (
+        <div className="bottom-empty">
+          Load a contract's methods from the sidebar to interact with it here.
+        </div>
+      ) : (
+        <>
+          <div className="interact-header">
+            <div>
+              <span className="interact-contract">{ide.explorerContract}</span>
+              <span className="interact-counts">
+                {ide.loadedMethods.length} methods · {ide.loadedVars.length} vars
+              </span>
+            </div>
+            {!ide.walletConnected && (
+              <span className="interact-warn">Connect wallet to call</span>
+            )}
           </div>
-        ))}
-        <div ref={consoleEndRef} />
+
+          {ide.loadedMethods.length === 0 ? (
+            <div className="bottom-empty">No exported methods.</div>
+          ) : (
+            ide.loadedMethods.map((m) => (
+              <div key={m.name} className="method-card">
+                <div className="method-name">{m.name}</div>
+                {m.arguments.length > 0 && (
+                  <div className="method-args">
+                    {m.arguments.map((a) => (
+                      <div key={a.name} className="method-arg-row">
+                        <span className="method-arg-label" title={a.type}>
+                          {a.name}
+                          <span className="method-arg-type">: {a.type}</span>
+                        </span>
+                        <input
+                          className="method-arg-input"
+                          placeholder={a.type}
+                          value={methodArgs[m.name]?.[a.name] ?? ""}
+                          onChange={(e) => setMethodArg(m.name, a.name, e.target.value)}
+                          aria-label={`${m.name} argument ${a.name}`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="method-actions">
+                  <button
+                    className="ide-btn ide-btn-secondary ide-btn-sm"
+                    disabled={!ide.walletConnected || ide.simulating}
+                    onClick={() =>
+                      ide.simulateCall(ide.explorerContract, m.name, buildKwargs(m))
+                    }
+                  >
+                    <Play size={11} /> {ide.simulating ? "Simulating..." : "Simulate"}
+                  </button>
+                  <button
+                    className="ide-btn ide-btn-primary ide-btn-sm"
+                    disabled={!ide.walletConnected}
+                    onClick={() =>
+                      ide.executeFunction(ide.explorerContract, m.name, buildKwargs(m))
+                    }
+                  >
+                    <Send size={11} /> Execute
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  const bottomPanel = (
+    <div
+      className="ide-bottom"
+      style={{ height: bottomHeight }}
+      role="region"
+      aria-label="Console and interaction panel"
+    >
+      <div
+        className="resizer-h"
+        onPointerDown={startBottomResize}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize bottom panel"
+      />
+      <div className="bottom-tabs">
+        <button
+          className={`bottom-tab ${bottomTab === "console" ? "active" : ""}`}
+          onClick={() => setBottomTab("console")}
+          role="tab"
+          aria-selected={bottomTab === "console"}
+        >
+          <Terminal size={12} /> Console
+          {ide.console.length > 0 && <span className="tab-badge">{ide.console.length}</span>}
+        </button>
+        <button
+          className={`bottom-tab ${bottomTab === "interact" ? "active" : ""}`}
+          onClick={() => setBottomTab("interact")}
+          role="tab"
+          aria-selected={bottomTab === "interact"}
+        >
+          <Zap size={12} /> Interact
+          {ide.loadedMethods.length > 0 && (
+            <span className="tab-badge">{ide.loadedMethods.length}</span>
+          )}
+        </button>
+        <div style={{ flex: 1 }} />
+        {bottomTab === "console" && (
+          <button
+            className="ide-btn ide-btn-ghost ide-btn-sm"
+            onClick={ide.clearConsole}
+            disabled={ide.console.length === 0}
+          >
+            <Trash2 size={11} /> Clear
+          </button>
+        )}
       </div>
+      {bottomTab === "console" ? consoleContent : interactContent}
     </div>
   );
 
   // ── Header ──────────────────────────────────────────────────
+
+  const networkLabel = ide.networkUrl.replace(/^https?:\/\//, "").replace(/:\d+$/, "");
 
   return (
     <div className="ide-root">
@@ -440,108 +781,231 @@ export default function App() {
           <span className="ide-brand">Xian IDE</span>
         </div>
         <div className="ide-header-right">
-          {/* Command palette */}
           <button
             className="ide-btn ide-btn-ghost ide-btn-sm"
             onClick={ensureEditorAndOpenPalette}
-            title="Command Palette (⌘K)"
+            title={`Command Palette (${MOD}+K)`}
+            aria-label="Open command palette"
           >
             <Command size={14} /> Commands
+            <span className="kbd">{MOD}K</span>
           </button>
 
-          {/* Network */}
-          <div
-            className="status-badge"
-            style={{ cursor: "pointer" }}
-            onClick={() => setShowNetworkModal(!showNetworkModal)}
+          <button
+            type="button"
+            className="status-badge status-badge-button"
+            onClick={openNetworkModal}
+            title={`Network: ${ide.networkOnline ? "online" : "offline"} — ${ide.networkUrl}`}
+            aria-label={`Network ${ide.networkOnline ? "online" : "offline"}, ${ide.networkUrl}. Click to change.`}
           >
-            <span className={`status-dot ${ide.networkOnline ? "online" : "offline"}`} />
-            {ide.networkUrl.replace(/^https?:\/\//, "").replace(/:\d+$/, "")}
-          </div>
+            <span
+              className={`status-dot ${ide.networkOnline ? "online" : "offline"}`}
+              aria-hidden="true"
+            />
+            <span className="status-badge-label">{networkLabel}</span>
+          </button>
 
-          {/* Wallet */}
           {ide.walletConnected ? (
-            <div className="status-badge" style={{ cursor: "pointer" }} onClick={ide.disconnectWallet}>
+            <button
+              type="button"
+              className="status-badge status-badge-button"
+              onClick={ide.disconnectWallet}
+              title="Click to disconnect wallet"
+              aria-label={`Wallet ${ide.walletAccount}. Click to disconnect.`}
+            >
               <Wallet size={12} />
-              {ide.walletAccount?.slice(0, 6)}...{ide.walletAccount?.slice(-4)}
-            </div>
+              <span className="status-badge-label">
+                {ide.walletAccount?.slice(0, 6)}...{ide.walletAccount?.slice(-4)}
+              </span>
+            </button>
           ) : (
-            <button className="ide-btn ide-btn-primary ide-btn-sm" onClick={ide.connectWallet}>
+            <button
+              className="ide-btn ide-btn-primary ide-btn-sm"
+              onClick={ide.connectWallet}
+            >
               <Plug size={12} /> Connect Wallet
             </button>
           )}
         </div>
       </header>
 
+      <div className="ide-body">
+        {sidebar}
+        <div
+          className="resizer-v"
+          onPointerDown={startSidebarResize}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+        />
+        <div className="ide-content">
+          <div className="ide-content-top">{editorArea}</div>
+          {bottomPanel}
+        </div>
+      </div>
+
+      {/* Status bar */}
+      <footer className="ide-statusbar" role="status" aria-live="polite">
+        <div className="status-left">
+          <span
+            className={`status-dot ${ide.networkOnline ? "online" : "offline"}`}
+            aria-hidden="true"
+          />
+          <span className="muted">{networkLabel}</span>
+          <span className="status-sep">·</span>
+          {ide.deploying ? (
+            <span className="status-busy">Deploying…</span>
+          ) : ide.linting ? (
+            <span className="status-busy">Linting…</span>
+          ) : ide.simulating ? (
+            <span className="status-busy">Simulating…</span>
+          ) : (
+            <span className="muted">Ready</span>
+          )}
+        </div>
+        <div className="status-right">
+          {ide.lintErrors.length > 0 && (
+            <span className="status-errors" title="Lint errors">
+              <AlertTriangle size={11} /> {ide.lintErrors.length}
+            </span>
+          )}
+          {dirtyCount > 0 && (
+            <span className="muted" title="Files with unsaved changes">
+              {dirtyCount} unsaved
+            </span>
+          )}
+          <span className="muted" title="Console entries">
+            <MessageSquare size={11} /> {ide.console.length}
+          </span>
+        </div>
+      </footer>
+
       {/* Network modal */}
       {showNetworkModal && (
-        <div style={{
-          position: "absolute", top: 48, right: 16, zIndex: 100,
-          background: "var(--bg-2)", border: "1px solid var(--line)",
-          borderRadius: 8, padding: 12, width: 300, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-        }}>
-          <div className="field-group">
-            <div className="field-label">RPC URL</div>
-            <input
-              className="ide-input ide-input-mono"
-              value={networkInput}
-              onChange={(e) => setNetworkInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  ide.changeNetwork(networkInput);
-                  setShowNetworkModal(false);
-                }
-              }}
-            />
-            <button
-              className="ide-btn ide-btn-primary ide-btn-sm"
-              onClick={() => { ide.changeNetwork(networkInput); setShowNetworkModal(false); }}
-            >
-              Connect
-            </button>
+        <div
+          className="ide-modal-backdrop"
+          onClick={() => setShowNetworkModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Network settings"
+        >
+          <div className="ide-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ide-modal-header">
+              <span className="ide-modal-title">Network</span>
+              <button
+                className="ide-btn ide-btn-ghost ide-btn-icon"
+                onClick={() => setShowNetworkModal(false)}
+                aria-label="Close"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="ide-modal-body">
+              <div className="field-group">
+                <div className="field-label">Presets</div>
+                <div className="btn-row">
+                  {NETWORK_PRESETS.map((p) => (
+                    <button
+                      key={p.name}
+                      className={`ide-btn ide-btn-sm ${
+                        networkInput === p.url ? "ide-btn-primary" : "ide-btn-secondary"
+                      }`}
+                      style={{ flex: 1 }}
+                      onClick={() => setNetworkInput(p.url)}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="field-group">
+                <div className="field-label">RPC URL</div>
+                <input
+                  className="ide-input ide-input-mono"
+                  value={networkInput}
+                  onChange={(e) => setNetworkInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      ide.changeNetwork(networkInput);
+                      setShowNetworkModal(false);
+                    }
+                  }}
+                  autoFocus
+                  aria-label="RPC URL"
+                />
+                <button
+                  className="ide-btn ide-btn-primary ide-btn-sm"
+                  onClick={() => {
+                    ide.changeNetwork(networkInput);
+                    setShowNetworkModal(false);
+                  }}
+                >
+                  Connect
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      <div className="ide-body">
-        {sidebar}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-            {editorArea}
+      {/* Template modal */}
+      {showTemplateModal && (
+        <div
+          className="ide-modal-backdrop"
+          onClick={() => setShowTemplateModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="New file from template"
+        >
+          <div className="ide-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ide-modal-header">
+              <span className="ide-modal-title">New file from template</span>
+              <button
+                className="ide-btn ide-btn-ghost ide-btn-icon"
+                onClick={() => setShowTemplateModal(false)}
+                aria-label="Close"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="ide-modal-body">
+              <div className="template-grid template-grid-modal">
+                {TEMPLATES.map((t) => (
+                  <div
+                    key={t.id}
+                    className="template-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      ide.createFile(`${t.id}.py`, t.code);
+                      setShowTemplateModal(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        ide.createFile(`${t.id}.py`, t.code);
+                        setShowTemplateModal(false);
+                      }
+                    }}
+                  >
+                    <FileCode size={14} />
+                    <span>{t.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-          {bottomPanel}
         </div>
-      </div>
-      {toast && <div className="ide-toast">{toast}</div>}
-    </div>
-  );
-}
+      )}
 
-// ── State Query Component ─────────────────────────────────────
-
-function StateQuery({ onQuery }: { onQuery: (key: string) => Promise<unknown> }) {
-  const [key, setKey] = useState("");
-
-  return (
-    <div className="field-group">
-      <input
-        className="ide-input ide-input-mono"
-        placeholder="contract.variable:key"
-        value={key}
-        onChange={(e) => setKey(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && key.trim()) {
-            onQuery(key.trim());
-          }
-        }}
-      />
-      <button
-        className="ide-btn ide-btn-secondary ide-btn-sm"
-        disabled={!key.trim()}
-        onClick={() => onQuery(key.trim())}
-      >
-        <Search size={11} /> Query
-      </button>
+      {/* Toast stack */}
+      {toasts.length > 0 && (
+        <div className="ide-toast-stack" aria-live="polite">
+          {toasts.map((t) => (
+            <div key={t.id} className="ide-toast">{t.message}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
