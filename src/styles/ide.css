@@ -82,6 +82,7 @@ button {
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  position: relative;
 }
 
 .ide-content-top {
@@ -99,14 +100,17 @@ button {
   cursor: col-resize;
   flex-shrink: 0;
   transition: background 0.12s;
-  position: relative;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  z-index: 10;
 }
 
 .resizer-v::after {
   content: "";
   position: absolute;
   inset: 0;
-  border-left: 1px solid var(--line);
 }
 
 .resizer-v:hover,
@@ -139,6 +143,7 @@ button {
 
 .ide-sidebar {
   background: var(--bg-1);
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;

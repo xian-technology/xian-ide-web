@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import * as rpc from "../lib/xian-client";
 import * as wallet from "../lib/wallet";
 import * as linter from "../lib/linter";
@@ -35,10 +35,12 @@ function loadFiles(): ContractFile[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (f): f is ContractFile =>
-        f && typeof f.id === "string" && typeof f.name === "string" && typeof f.code === "string"
-    );
+    return parsed
+      .filter(
+        (f): f is ContractFile =>
+          f && typeof f.id === "string" && typeof f.name === "string" && typeof f.code === "string"
+      )
+      .map((f) => ({ ...f, dirty: false }));
   } catch {
     return [];
   }
@@ -88,8 +90,10 @@ export function useIDE() {
   // Loading states
   const [deploying, setDeploying] = useState(false);
   const [simulating, setSimulating] = useState(false);
+  const [executing, setExecuting] = useState(false);
   const [linting, setLinting] = useState(false);
   const [linterAvailable, setLinterAvailable] = useState(false);
+  const executingRef = useRef(false);
 
   // Lint errors keyed by file id, so they survive rehydration and stay scoped
   const [lintErrorsByFile, setLintErrorsByFile] = useState<Record<string, LintError[]>>({});
@@ -145,7 +149,7 @@ export function useIDE() {
 
   const updateFileCode = useCallback((id: string, code: string) => {
     setFiles((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, code, dirty: true } : f))
+      prev.map((f) => (f.id === id ? { ...f, code, dirty: false } : f))
     );
   }, []);
 
@@ -345,6 +349,12 @@ export function useIDE() {
         log("error", "Connect wallet first");
         return;
       }
+      if (executingRef.current) {
+        log("info", "Execute already in progress");
+        return;
+      }
+      executingRef.current = true;
+      setExecuting(true);
       try {
         log("info", `Simulating ${contract}.${func}()...`);
 
@@ -375,6 +385,9 @@ export function useIDE() {
         log("result", JSON.stringify(result, null, 2));
       } catch (e) {
         log("error", `Execute failed: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        executingRef.current = false;
+        setExecuting(false);
       }
     },
     [walletConnected, walletAccount, log]
@@ -462,6 +475,7 @@ export function useIDE() {
     queryState,
     deploying,
     simulating,
+    executing,
 
     // Linter
     linting,

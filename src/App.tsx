@@ -4,7 +4,7 @@ import type { editor } from "monaco-editor";
 import {
   Upload, Search, Plus, X, Trash2, Terminal, Code2,
   Wallet, FileCode, Plug, Braces, AlertTriangle, Command,
-  Copy, Play, Send, Zap, MessageSquare,
+  Copy, Play, Send, Zap, MessageSquare, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { useIDE, type ContractMethod } from "./hooks/useIDE";
 import { TEMPLATES } from "./lib/contract-templates";
@@ -21,6 +21,15 @@ const NETWORK_PRESETS: Array<{ name: string; url: string }> = [
 
 const STORAGE_SIDEBAR_W = "xian-ide-sidebar-width";
 const STORAGE_BOTTOM_H = "xian-ide-bottom-height";
+const STORAGE_SIDEBAR_COLLAPSED = "xian-ide-sidebar-collapsed";
+
+type ArgParseResult =
+  | { ok: true; value: unknown }
+  | { ok: false; message: string };
+
+type KwargsBuildResult =
+  | { ok: true; kwargs: Record<string, unknown> }
+  | { ok: false; message: string };
 
 function loadNum(key: string, fallback: number, min: number, max: number): number {
   try {
@@ -29,6 +38,16 @@ function loadNum(key: string, fallback: number, min: number, max: number): numbe
     const n = Number(raw);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(min, Math.min(max, n));
+  } catch {
+    return fallback;
+  }
+}
+
+function loadBool(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    return raw === "true";
   } catch {
     return fallback;
   }
@@ -73,18 +92,24 @@ function handleEditorWillMount(monaco: Monaco) {
   });
 }
 
-function parseArg(value: string, type: string): unknown {
+function parseArg(value: string, type: string, argName: string): ArgParseResult {
   const t = (type || "").toLowerCase();
-  if (value === "") return null;
+  const raw = value.trim();
+  if (raw === "") return { ok: true, value: null };
   if (t === "int" || t === "float" || t === "decimal" || t === "number") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : value;
+    const n = Number(raw);
+    return { ok: true, value: Number.isFinite(n) ? n : value };
   }
-  if (t === "bool") return value.toLowerCase() === "true";
+  if (t === "bool") {
+    const normalized = raw.toLowerCase();
+    if (normalized === "true") return { ok: true, value: true };
+    if (normalized === "false") return { ok: true, value: false };
+    return { ok: false, message: `${argName} must be true or false` };
+  }
   if (t === "list" || t === "dict" || t === "any" || t === "json") {
-    try { return JSON.parse(value); } catch { return value; }
+    try { return { ok: true, value: JSON.parse(value) }; } catch { return { ok: true, value }; }
   }
-  return value;
+  return { ok: true, value };
 }
 
 export default function App() {
@@ -115,6 +140,12 @@ export default function App() {
   const [bottomHeight, setBottomHeight] = useState(() =>
     loadNum(STORAGE_BOTTOM_H, 240, 80, 600)
   );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    loadBool(
+      STORAGE_SIDEBAR_COLLAPSED,
+      typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches
+    )
+  );
 
   useEffect(() => { ideRef.current = ide; }, [ide]);
   useEffect(() => { deployNameRef.current = deployName; }, [deployName]);
@@ -124,6 +155,9 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem(STORAGE_BOTTOM_H, String(bottomHeight)); } catch { /* ignore */ }
   }, [bottomHeight]);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_SIDEBAR_COLLAPSED, String(sidebarCollapsed)); } catch { /* ignore */ }
+  }, [sidebarCollapsed]);
 
   // Toast helpers
   const showToast = useCallback((msg: string) => {
@@ -266,6 +300,7 @@ export default function App() {
   const startSidebarResize = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
+      if (sidebarCollapsed) return;
       const startX = e.clientX;
       const startW = sidebarWidth;
       const move = (ev: PointerEvent) => {
@@ -282,7 +317,7 @@ export default function App() {
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
     },
-    [sidebarWidth]
+    [sidebarCollapsed, sidebarWidth]
   );
 
   const startBottomResize = useCallback(
@@ -315,14 +350,18 @@ export default function App() {
   }, []);
 
   const buildKwargs = useCallback(
-    (m: ContractMethod): Record<string, unknown> => {
+    (m: ContractMethod): KwargsBuildResult => {
       const args = methodArgs[m.name] ?? {};
       const out: Record<string, unknown> = {};
       for (const a of m.arguments) {
         const raw = args[a.name];
-        if (raw !== undefined && raw !== "") out[a.name] = parseArg(raw, a.type);
+        if (raw !== undefined && raw !== "") {
+          const parsed = parseArg(raw, a.type, `${m.name}.${a.name}`);
+          if (!parsed.ok) return parsed;
+          out[a.name] = parsed.value;
+        }
       }
-      return out;
+      return { ok: true, kwargs: out };
     },
     [methodArgs]
   );
@@ -695,21 +734,33 @@ export default function App() {
                 <div className="method-actions">
                   <button
                     className="ide-btn ide-btn-secondary ide-btn-sm"
-                    disabled={!ide.walletConnected || ide.simulating}
-                    onClick={() =>
-                      ide.simulateCall(ide.explorerContract, m.name, buildKwargs(m))
-                    }
+                    disabled={!ide.walletConnected || ide.simulating || ide.executing}
+                    onClick={() => {
+                      const built = buildKwargs(m);
+                      if (!built.ok) {
+                        ide.log("error", built.message);
+                        setBottomTab("console");
+                        return;
+                      }
+                      ide.simulateCall(ide.explorerContract, m.name, built.kwargs);
+                    }}
                   >
                     <Play size={11} /> {ide.simulating ? "Simulating..." : "Simulate"}
                   </button>
                   <button
                     className="ide-btn ide-btn-primary ide-btn-sm"
-                    disabled={!ide.walletConnected}
-                    onClick={() =>
-                      ide.executeFunction(ide.explorerContract, m.name, buildKwargs(m))
-                    }
+                    disabled={!ide.walletConnected || ide.simulating || ide.executing}
+                    onClick={() => {
+                      const built = buildKwargs(m);
+                      if (!built.ok) {
+                        ide.log("error", built.message);
+                        setBottomTab("console");
+                        return;
+                      }
+                      ide.executeFunction(ide.explorerContract, m.name, built.kwargs);
+                    }}
                   >
-                    <Send size={11} /> Execute
+                    <Send size={11} /> {ide.executing ? "Executing..." : "Execute"}
                   </button>
                 </div>
               </div>
@@ -778,6 +829,15 @@ export default function App() {
     <div className="ide-root">
       <header className="ide-header">
         <div className="ide-header-left">
+          <button
+            className="ide-btn ide-btn-ghost ide-btn-icon"
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+            aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+            aria-expanded={!sidebarCollapsed}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+          </button>
           <span className="ide-brand">Xian IDE</span>
         </div>
         <div className="ide-header-right">
@@ -830,16 +890,20 @@ export default function App() {
       </header>
 
       <div className="ide-body">
-        {sidebar}
-        <div
-          className="resizer-v"
-          onPointerDown={startSidebarResize}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize sidebar"
-        />
+        {!sidebarCollapsed && sidebar}
         <div className="ide-content">
-          <div className="ide-content-top">{editorArea}</div>
+          {!sidebarCollapsed && (
+            <div
+              className="resizer-v"
+              onPointerDown={startSidebarResize}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+            />
+          )}
+          <div className="ide-content-top">
+            {editorArea}
+          </div>
           {bottomPanel}
         </div>
       </div>
@@ -859,6 +923,8 @@ export default function App() {
             <span className="status-busy">Linting…</span>
           ) : ide.simulating ? (
             <span className="status-busy">Simulating…</span>
+          ) : ide.executing ? (
+            <span className="status-busy">Executing…</span>
           ) : (
             <span className="muted">Ready</span>
           )}
