@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useIDE, type ContractMethod } from "./hooks/useIDE";
 import { TEMPLATES } from "./lib/contract-templates";
+import { DEFAULT_LINTER_URL, normalizeLinterUrl } from "./lib/linter";
 import "./styles/ide.css";
 
 const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -137,6 +138,7 @@ export default function App() {
   const [bottomTab, setBottomTab] = useState<"console" | "interact">("console");
   const [showNetworkModal, setShowNetworkModal] = useState(false);
   const [networkInput, setNetworkInput] = useState(ide.networkUrl);
+  const [linterInput, setLinterInput] = useState(ide.linterUrl);
   const [contractInput, setContractInput] = useState("");
   const [stateKey, setStateKey] = useState("");
   const [showTemplateModal, setShowTemplateModal] = useState(false);
@@ -152,6 +154,7 @@ export default function App() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const ideRef = useRef(ide);
+  const lintDecorationIdsRef = useRef<string[]>([]);
   const contractInputRef = useRef<HTMLInputElement | null>(null);
   const stateKeyInputRef = useRef<HTMLInputElement | null>(null);
   const consoleEndRef = useRef<HTMLDivElement>(null);
@@ -199,6 +202,7 @@ export default function App() {
     if (!ed || !monaco) return;
     const model = ed.getModel();
     if (!model) return;
+    const lineCount = model.getLineCount();
     const markers = ide.lintErrors.map((e) => ({
       severity: e.severity === "warning"
         ? monaco.MarkerSeverity.Warning
@@ -211,6 +215,39 @@ export default function App() {
       source: "xian-linter",
     }));
     monaco.editor.setModelMarkers(model, "xian-lint", markers);
+
+    const lintLines = new Map<
+      number,
+      { severity: "error" | "warning"; messages: string[] }
+    >();
+    for (const error of ide.lintErrors) {
+      if (!error.line) continue;
+      const line = Math.max(1, Math.min(lineCount, error.line));
+      const severity = error.severity === "warning" ? "warning" : "error";
+      const current = lintLines.get(line);
+      const message = `[${error.code}] ${error.message}`;
+      if (!current) {
+        lintLines.set(line, { severity, messages: [message] });
+        continue;
+      }
+      current.messages.push(message);
+      if (severity === "error") {
+        current.severity = "error";
+      }
+    }
+
+    lintDecorationIdsRef.current = ed.deltaDecorations(
+      lintDecorationIdsRef.current,
+      Array.from(lintLines.entries()).map(([line, info]) => ({
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          glyphMarginClassName: `xian-lint-glyph xian-lint-glyph-${info.severity}`,
+          glyphMarginHoverMessage: {
+            value: info.messages.map((message) => `- ${message}`).join("\n"),
+          },
+        },
+      }))
+    );
   }, [ide.lintErrors, ide.activeFileId]);
 
   // Editor mount
@@ -317,6 +354,16 @@ export default function App() {
     setShowNetworkModal(true);
   }, [ide.networkUrl]);
 
+  const lintWithEndpoint = useCallback(() => {
+    if (!linterInput.trim()) return;
+    const normalized = normalizeLinterUrl(linterInput);
+    setLinterInput(normalized);
+    if (normalized !== ide.linterUrl) {
+      void ide.changeLinterUrl(normalized);
+    }
+    ide.lintCurrentFile();
+  }, [ide, linterInput]);
+
   // Auto-scroll console
   useEffect(() => {
     if (bottomTab === "console") {
@@ -400,6 +447,13 @@ export default function App() {
     [ide.activeFile]
   );
   const activeFileFromChain = ide.activeFile?.fromChain === true;
+  const activeChainContractName = activeFileFromChain ? ide.activeFile?.name ?? "" : "";
+  const interactContractVisible = Boolean(
+    activeChainContractName && ide.explorerContract === activeChainContractName
+  );
+  const interactMethods = interactContractVisible ? ide.loadedMethods : [];
+  const interactVars = interactContractVisible ? ide.loadedVars : [];
+
   const canDeployActiveFile = Boolean(
     ide.activeFile &&
     !activeFileFromChain &&
@@ -651,15 +705,27 @@ export default function App() {
           </div>
         </section>
 
-        {/* Lint & Deploy */}
+        {/* Lint Contract */}
         <section className="sidebar-section">
-          <div className="sidebar-header">Lint & Deploy</div>
+          <div className="sidebar-header">Lint Contract</div>
           <div className="sidebar-content">
             <div className="field-group">
+              <input
+                className="ide-input ide-input-mono"
+                placeholder={DEFAULT_LINTER_URL}
+                value={linterInput}
+                onChange={(e) => setLinterInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    lintWithEndpoint();
+                  }
+                }}
+                aria-label="Linter endpoint"
+              />
               <button
                 className="ide-btn ide-btn-secondary ide-btn-sm sidebar-action"
-                disabled={!ide.activeFile || ide.linting}
-                onClick={ide.lintCurrentFile}
+                disabled={!ide.activeFile || ide.linting || !linterInput.trim()}
+                onClick={lintWithEndpoint}
                 title={`Lint contract (${MOD}+Shift+L)`}
               >
                 <span className="ide-btn-label">
@@ -669,8 +735,17 @@ export default function App() {
                 <span className="kbd">{MOD}⇧L</span>
               </button>
               {!ide.linterAvailable && (
-                <div className="sidebar-hint">Linter offline (start local server)</div>
+                <div className="sidebar-hint">Linter offline</div>
               )}
+            </div>
+          </div>
+        </section>
+
+        {/* Deploy Contract */}
+        <section className="sidebar-section">
+          <div className="sidebar-header">Deploy Contract</div>
+          <div className="sidebar-content">
+            <div className="field-group">
               <input
                 className="ide-input ide-input-mono"
                 placeholder="contract_name"
@@ -771,6 +846,7 @@ export default function App() {
               minimap: { enabled: false },
               scrollBeyondLastLine: false,
               padding: { top: 12 },
+              glyphMargin: true,
               lineNumbers: "on",
               renderLineHighlight: "line",
               bracketPairColorization: { enabled: true },
@@ -842,17 +918,13 @@ export default function App() {
 
   const interactContent = (
     <div className="bottom-content">
-      {!ide.explorerContract ? (
-        <div className="bottom-empty">
-          Load a contract's methods from the sidebar to interact with it here.
-        </div>
-      ) : (
+      {interactContractVisible && (
         <>
           <div className="interact-header">
             <div>
-              <span className="interact-contract">{ide.explorerContract}</span>
+              <span className="interact-contract">{activeChainContractName}</span>
               <span className="interact-counts">
-                {ide.loadedMethods.length} methods · {ide.loadedVars.length} vars
+                {interactMethods.length} methods · {interactVars.length} vars
               </span>
             </div>
             {!ide.walletConnected && (
@@ -860,10 +932,10 @@ export default function App() {
             )}
           </div>
 
-          {ide.loadedMethods.length === 0 ? (
+          {interactMethods.length === 0 ? (
             <div className="bottom-empty">No exported methods.</div>
           ) : (
-            ide.loadedMethods.map((m) => (
+            interactMethods.map((m) => (
               <div key={m.name} className="method-card">
                 <div className="method-name">{m.name}</div>
                 {m.arguments.length > 0 && (
@@ -896,7 +968,7 @@ export default function App() {
                         setBottomTab("console");
                         return;
                       }
-                      ide.simulateCall(ide.explorerContract, m.name, built.kwargs);
+                      ide.simulateCall(activeChainContractName, m.name, built.kwargs);
                     }}
                   >
                     <Play size={11} /> {ide.simulating ? "Simulating..." : "Simulate"}
@@ -911,7 +983,7 @@ export default function App() {
                         setBottomTab("console");
                         return;
                       }
-                      ide.executeFunction(ide.explorerContract, m.name, built.kwargs);
+                      ide.executeFunction(activeChainContractName, m.name, built.kwargs);
                     }}
                   >
                     <Send size={11} /> {ide.executing ? "Executing..." : "Execute"}
@@ -956,8 +1028,8 @@ export default function App() {
           aria-selected={bottomTab === "interact"}
         >
           <Zap size={12} /> Interact
-          {ide.loadedMethods.length > 0 && (
-            <span className="tab-badge">{ide.loadedMethods.length}</span>
+          {interactMethods.length > 0 && (
+            <span className="tab-badge">{interactMethods.length}</span>
           )}
         </button>
         <div style={{ flex: 1 }} />

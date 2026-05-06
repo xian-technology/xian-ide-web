@@ -2,15 +2,39 @@
  * Xian contract linter integration.
  * Calls the xian-linter HTTP server at /lint.
  *
- * Start the linter server with:
+ * Start a local linter server with:
  *   uv add "xian-tech-linter[server]"
  *   uvicorn xian_linter.server:create_app --factory --port 8000
  */
 
-let linterUrl = "http://127.0.0.1:8000";
+export const DEFAULT_LINTER_URL = "http://linter.xian.technology:8000";
+
+const DEFAULT_LINTER_HOST = "linter.xian.technology";
+const DEFAULT_LINTER_PORT = "8000";
+
+let linterUrl = DEFAULT_LINTER_URL;
+
+export function normalizeLinterUrl(url: string): string {
+  const raw = url.trim();
+  if (!raw) return DEFAULT_LINTER_URL;
+
+  const withProtocol = /^[a-z][a-z\d+\-.]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+  try {
+    const parsed = new URL(withProtocol);
+    if (parsed.hostname === DEFAULT_LINTER_HOST && !parsed.port && parsed.protocol === "http:") {
+      parsed.port = DEFAULT_LINTER_PORT;
+    }
+    parsed.pathname = parsed.pathname.replace(/\/(?:lint|docs|openapi\.json)\/?$/, "");
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return withProtocol.replace(/\/+$/, "");
+  }
+}
 
 export function setLinterUrl(url: string) {
-  linterUrl = url.replace(/\/+$/, "");
+  linterUrl = normalizeLinterUrl(url);
 }
 
 export function getLinterUrl(): string {
@@ -107,8 +131,10 @@ export async function lintCode(code: string): Promise<LintResult> {
 
 export async function checkLinterAvailable(): Promise<boolean> {
   try {
-    const resp = await fetch(`${linterUrl}/docs`, { signal: AbortSignal.timeout(3000) });
-    return resp.ok;
+    const resp = await fetch(`${linterUrl}/openapi.json`, { signal: AbortSignal.timeout(3000) });
+    if (!resp.ok) return false;
+    const schema = await resp.json() as { paths?: Record<string, unknown> };
+    return Boolean(schema.paths?.["/lint"]);
   } catch {
     return false;
   }

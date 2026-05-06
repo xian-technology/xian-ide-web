@@ -427,6 +427,33 @@ button {
   overflow: hidden;
 }
 
+.monaco-editor .xian-lint-glyph {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.monaco-editor .xian-lint-glyph::before {
+  content: "!";
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 13px;
+  text-align: center;
+}
+
+.monaco-editor .xian-lint-glyph-error::before {
+  background: var(--danger);
+}
+
+.monaco-editor .xian-lint-glyph-warning::before {
+  background: var(--warning);
+  color: #000;
+}
+
 /* ── Bottom panel ──────────────────────────────────────────── */
 
 .ide-bottom {
