@@ -200,12 +200,14 @@ export default function App() {
     const model = ed.getModel();
     if (!model) return;
     const markers = ide.lintErrors.map((e) => ({
-      severity: monaco.MarkerSeverity.Error,
+      severity: e.severity === "warning"
+        ? monaco.MarkerSeverity.Warning
+        : monaco.MarkerSeverity.Error,
       message: `[${e.code}] ${e.message}`,
       startLineNumber: e.line ?? 1,
-      endLineNumber: e.line ?? 1,
+      endLineNumber: e.endLine ?? e.line ?? 1,
       startColumn: e.col ?? 1,
-      endColumn: (e.col ?? 1) + 1,
+      endColumn: e.endCol ?? (e.col ?? 1) + 1,
       source: "xian-linter",
     }));
     monaco.editor.setModelMarkers(model, "xian-lint", markers);

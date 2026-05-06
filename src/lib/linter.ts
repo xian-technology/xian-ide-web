@@ -20,13 +20,68 @@ export function getLinterUrl(): string {
 export interface LintError {
   code: string;
   message: string;
+  severity?: "error" | "warning";
   line?: number;
   col?: number;
+  endLine?: number;
+  endCol?: number;
 }
 
 export interface LintResult {
   success: boolean;
   errors: LintError[];
+}
+
+interface ServerLintError {
+  code: string;
+  message: string;
+  severity?: "error" | "warning";
+  line?: number;
+  col?: number;
+  position?: {
+    line?: number;
+    col?: number;
+    end_line?: number;
+    end_col?: number;
+  } | null;
+}
+
+interface ServerLintResult {
+  success: boolean;
+  errors?: ServerLintError[];
+}
+
+function toEditorColumn(col: number | undefined): number | undefined {
+  if (col === undefined || !Number.isFinite(col)) return undefined;
+  return Math.max(1, col + 1);
+}
+
+function normalizeLintError(error: ServerLintError): LintError {
+  const position = error.position ?? undefined;
+  const line = error.line ?? position?.line;
+  const col = error.col ?? toEditorColumn(position?.col);
+  const endLine = position?.end_line ?? line;
+  let endCol = toEditorColumn(position?.end_col) ?? (col ? col + 1 : undefined);
+  if (line && endLine === line && col && endCol !== undefined && endCol <= col) {
+    endCol = col + 1;
+  }
+
+  return {
+    code: error.code,
+    message: error.message,
+    severity: error.severity,
+    line,
+    col,
+    endLine,
+    endCol,
+  };
+}
+
+function normalizeLintResult(result: ServerLintResult): LintResult {
+  return {
+    success: result.success,
+    errors: (result.errors ?? []).map(normalizeLintError),
+  };
 }
 
 export async function lintCode(code: string): Promise<LintResult> {
@@ -40,7 +95,7 @@ export async function lintCode(code: string): Promise<LintResult> {
     if (!resp.ok) {
       return { success: false, errors: [{ code: "E000", message: `Linter HTTP ${resp.status}` }] };
     }
-    return await resp.json();
+    return normalizeLintResult(await resp.json());
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes("timeout") || msg.includes("abort")) {

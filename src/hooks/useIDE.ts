@@ -450,7 +450,9 @@ export function useIDE() {
         setLintErrorsByFile((prev) => ({ ...prev, [fileId]: [] }));
       } else {
         for (const err of result.errors) {
-          const loc = err.line ? ` (line ${err.line}${err.col ? `:${err.col}` : ""})` : "";
+          const loc = err.line
+            ? ` (line ${err.line}${err.col !== undefined ? `:${err.col}` : ""})`
+            : "";
           log("error", `[${err.code}]${loc} ${err.message}`);
         }
         log("error", `Lint: ${result.errors.length} error(s)`);
