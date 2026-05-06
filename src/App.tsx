@@ -5,6 +5,7 @@ import {
   Upload, Search, Plus, X, Trash2, Terminal, Code2,
   Wallet, FileCode, Plug, Braces, AlertTriangle, Command,
   Copy, Play, Send, Zap, MessageSquare, PanelLeftClose, PanelLeftOpen,
+  Cloud, GripVertical,
 } from "lucide-react";
 import { useIDE, type ContractMethod } from "./hooks/useIDE";
 import { TEMPLATES } from "./lib/contract-templates";
@@ -30,6 +31,8 @@ type ArgParseResult =
 type KwargsBuildResult =
   | { ok: true; kwargs: Record<string, unknown> }
   | { ok: false; message: string };
+
+type FileDropPlacement = "before" | "after";
 
 function loadNum(key: string, fallback: number, min: number, max: number): number {
   try {
@@ -112,6 +115,23 @@ function parseArg(value: string, type: string, argName: string): ArgParseResult 
   return { ok: true, value };
 }
 
+function contractNameFromFileName(name: string): string {
+  return name.replace(/\.py$/i, "").trim();
+}
+
+function normalizeDraftFileName(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const base = contractNameFromFileName(trimmed);
+  if (!base) return null;
+  return `${base}.py`;
+}
+
+function getDropPlacement(e: React.DragEvent<HTMLElement>): FileDropPlacement {
+  const rect = e.currentTarget.getBoundingClientRect();
+  return e.clientY > rect.top + rect.height / 2 ? "after" : "before";
+}
+
 export default function App() {
   const ide = useIDE();
   const [bottomTab, setBottomTab] = useState<"console" | "interact">("console");
@@ -119,14 +139,19 @@ export default function App() {
   const [networkInput, setNetworkInput] = useState(ide.networkUrl);
   const [contractInput, setContractInput] = useState("");
   const [stateKey, setStateKey] = useState("");
-  const [deployName, setDeployName] = useState("");
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [methodArgs, setMethodArgs] = useState<Record<string, Record<string, string>>>({});
+  const [editingFileId, setEditingFileId] = useState<string | null>(null);
+  const [editingFileName, setEditingFileName] = useState("");
+  const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
+  const [dragOverFile, setDragOverFile] = useState<{
+    id: string;
+    placement: FileDropPlacement;
+  } | null>(null);
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const ideRef = useRef(ide);
-  const deployNameRef = useRef(deployName);
   const contractInputRef = useRef<HTMLInputElement | null>(null);
   const stateKeyInputRef = useRef<HTMLInputElement | null>(null);
   const consoleEndRef = useRef<HTMLDivElement>(null);
@@ -148,7 +173,6 @@ export default function App() {
   );
 
   useEffect(() => { ideRef.current = ide; }, [ide]);
-  useEffect(() => { deployNameRef.current = deployName; }, [deployName]);
   useEffect(() => {
     try { localStorage.setItem(STORAGE_SIDEBAR_W, String(sidebarWidth)); } catch { /* ignore */ }
   }, [sidebarWidth]);
@@ -199,11 +223,13 @@ export default function App() {
         keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyD],
         run: () => {
           const i = ideRef.current;
-          const name = deployNameRef.current.trim();
-          if (!i.activeFile) { i.log("error", "No file open"); return; }
-          if (!name) { i.log("error", "Enter a contract name in the Deploy panel first"); return; }
+          const file = i.activeFile;
+          if (!file) { i.log("error", "No file open"); return; }
+          if (file.fromChain) { i.log("error", "Loaded chain contracts are read-only"); return; }
+          const name = contractNameFromFileName(file.name);
+          if (!name) { i.log("error", "Rename the file before deploying"); return; }
           if (!i.walletConnected) { i.log("error", "Connect wallet first"); return; }
-          i.deployContract(name, i.activeFile.code);
+          i.deployContract(name, file.code);
         },
       });
 
@@ -367,6 +393,39 @@ export default function App() {
   );
 
   const dirtyCount = useMemo(() => ide.files.filter((f) => f.dirty).length, [ide.files]);
+  const activeContractName = useMemo(
+    () => (ide.activeFile ? contractNameFromFileName(ide.activeFile.name) : ""),
+    [ide.activeFile]
+  );
+  const activeFileFromChain = ide.activeFile?.fromChain === true;
+  const canDeployActiveFile = Boolean(
+    ide.activeFile &&
+    !activeFileFromChain &&
+    activeContractName &&
+    !ide.deploying &&
+    ide.walletConnected
+  );
+
+  const startFileRename = useCallback((file: { id: string; name: string; fromChain?: boolean }) => {
+    if (file.fromChain) return;
+    setEditingFileId(file.id);
+    setEditingFileName(file.name);
+  }, []);
+
+  const cancelFileRename = useCallback(() => {
+    setEditingFileId(null);
+    setEditingFileName("");
+  }, []);
+
+  const commitFileRename = useCallback(() => {
+    if (!editingFileId) return;
+    const normalized = normalizeDraftFileName(editingFileName);
+    if (normalized) {
+      ide.renameFile(editingFileId, normalized);
+    }
+    setEditingFileId(null);
+    setEditingFileName("");
+  }, [editingFileId, editingFileName, ide]);
 
   // ── Sidebar ─────────────────────────────────────────────────
 
@@ -396,45 +455,121 @@ export default function App() {
                 No files open. Create one or load from chain.
               </div>
             )}
-            {ide.files.map((f) => (
-              <div
-                key={f.id}
-                className={`file-item ${ide.activeFileId === f.id ? "active" : ""}`}
-                onClick={() => ide.setActiveFileId(f.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
+            {ide.files.map((f) => {
+              const isEditing = editingFileId === f.id;
+              const FileIcon = f.fromChain ? Cloud : FileCode;
+              const dropClass =
+                dragOverFile?.id === f.id ? `drop-${dragOverFile.placement}` : "";
+
+              return (
+                <div
+                  key={f.id}
+                  className={`file-item ${ide.activeFileId === f.id ? "active" : ""} ${
+                    f.fromChain ? "file-item-chain" : "file-item-draft"
+                  } ${draggingFileId === f.id ? "dragging" : ""} ${dropClass}`}
+                  title={f.fromChain ? "Loaded from chain" : "Draft contract"}
+                  onClick={() => ide.setActiveFileId(f.id)}
+                  onDoubleClick={(e) => {
                     e.preventDefault();
-                    ide.setActiveFileId(f.id);
-                  }
-                }}
-              >
-                <span className="file-item-name">
-                  <FileCode size={14} />
-                  <span className="file-item-label">{f.name}</span>
-                  {f.dirty && (
-                    <span
-                      className="dirty-dot"
-                      title="Unsaved changes"
-                      aria-label="Unsaved changes"
-                    />
-                  )}
-                </span>
-                <span
-                  className="file-item-close"
+                    startFileRename(f);
+                  }}
                   role="button"
-                  tabIndex={-1}
-                  aria-label={`Close ${f.name}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    ide.closeFile(f.id);
+                  tabIndex={0}
+                  draggable={!isEditing}
+                  onDragStart={(e) => {
+                    setDraggingFileId(f.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", f.id);
+                  }}
+                  onDragOver={(e) => {
+                    const sourceId = draggingFileId || e.dataTransfer.getData("text/plain");
+                    if (!sourceId || sourceId === f.id) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOverFile({ id: f.id, placement: getDropPlacement(e) });
+                  }}
+                  onDragLeave={() => {
+                    setDragOverFile((current) => (current?.id === f.id ? null : current));
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const sourceId = draggingFileId || e.dataTransfer.getData("text/plain");
+                    if (sourceId && sourceId !== f.id) {
+                      ide.reorderFile(sourceId, f.id, getDropPlacement(e));
+                    }
+                    setDraggingFileId(null);
+                    setDragOverFile(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingFileId(null);
+                    setDragOverFile(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (isEditing) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      ide.setActiveFileId(f.id);
+                    }
                   }}
                 >
-                  <X size={12} />
-                </span>
-              </div>
-            ))}
+                  <span className="file-drag-handle" aria-hidden="true">
+                    <GripVertical size={12} />
+                  </span>
+                  <span className="file-item-name">
+                    <FileIcon
+                      size={14}
+                      className="file-origin-icon"
+                      aria-hidden="true"
+                    />
+                    {isEditing ? (
+                      <input
+                        className="file-rename-input"
+                        value={editingFileName}
+                        onChange={(e) => setEditingFileName(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitFileRename();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancelFileRename();
+                          }
+                        }}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onBlur={commitFileRename}
+                        autoFocus
+                        aria-label={`Rename ${f.name}`}
+                      />
+                    ) : (
+                      <span className="file-item-label" title={f.name}>
+                        {f.name}
+                      </span>
+                    )}
+                    {f.dirty && (
+                      <span
+                        className="dirty-dot"
+                        title="Unsaved changes"
+                        aria-label="Unsaved changes"
+                      />
+                    )}
+                  </span>
+                  <span
+                    className="file-item-close"
+                    role="button"
+                    tabIndex={-1}
+                    aria-label={`Close ${f.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      ide.closeFile(f.id);
+                    }}
+                  >
+                    <X size={12} />
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -537,23 +672,31 @@ export default function App() {
               <input
                 className="ide-input ide-input-mono"
                 placeholder="contract_name"
-                value={deployName}
-                onChange={(e) => setDeployName(e.target.value)}
-                aria-label="Deploy contract name"
+                value={activeContractName}
+                readOnly
+                aria-label="Deploy contract name from file name"
               />
               <button
                 className="ide-btn ide-btn-primary ide-btn-sm sidebar-action"
-                disabled={!ide.activeFile || !deployName.trim() || ide.deploying || !ide.walletConnected}
+                disabled={!canDeployActiveFile}
                 onClick={() => {
-                  if (ide.activeFile) {
-                    ide.deployContract(deployName.trim(), ide.activeFile.code);
+                  if (ide.activeFile && !activeFileFromChain) {
+                    ide.deployContract(activeContractName, ide.activeFile.code);
                   }
                 }}
-                title={`Deploy contract (${MOD}+Shift+D)`}
+                title={
+                  activeFileFromChain
+                    ? "Loaded chain contracts are read-only"
+                    : `Deploy contract (${MOD}+Shift+D)`
+                }
               >
                 <span className="ide-btn-label">
-                  <Upload size={12} />
-                  {ide.deploying ? "Deploying..." : "Deploy Contract"}
+                  {activeFileFromChain ? <Cloud size={12} /> : <Upload size={12} />}
+                  {activeFileFromChain
+                    ? "Loaded from Chain"
+                    : ide.deploying
+                      ? "Deploying..."
+                      : "Deploy Contract"}
                 </span>
                 <span className="kbd">{MOD}⇧D</span>
               </button>
@@ -574,9 +717,17 @@ export default function App() {
             key={f.id}
             role="tab"
             aria-selected={ide.activeFileId === f.id}
-            className={`editor-tab ${ide.activeFileId === f.id ? "active" : ""}`}
+            className={`editor-tab ${ide.activeFileId === f.id ? "active" : ""} ${
+              f.fromChain ? "editor-tab-chain" : "editor-tab-draft"
+            }`}
+            title={f.fromChain ? "Loaded from chain" : "Draft contract"}
             onClick={() => ide.setActiveFileId(f.id)}
           >
+            {f.fromChain ? (
+              <Cloud size={12} aria-hidden="true" />
+            ) : (
+              <FileCode size={12} aria-hidden="true" />
+            )}
             {f.dirty && (
               <span
                 className="dirty-dot"
@@ -612,6 +763,7 @@ export default function App() {
               }
             }}
             options={{
+              readOnly: ide.activeFile.fromChain === true,
               fontSize: 12,
               fontFamily: "var(--font-mono)",
               minimap: { enabled: false },

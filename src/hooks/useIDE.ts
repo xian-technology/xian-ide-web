@@ -12,6 +12,8 @@ export interface ContractFile {
   fromChain?: boolean;
 }
 
+type FilePlacement = "before" | "after";
+
 export interface ConsoleEntry {
   id: string;
   type: "info" | "success" | "error" | "result";
@@ -40,7 +42,11 @@ function loadFiles(): ContractFile[] {
         (f): f is ContractFile =>
           f && typeof f.id === "string" && typeof f.name === "string" && typeof f.code === "string"
       )
-      .map((f) => ({ ...f, dirty: false }));
+      .map((f) => ({
+        ...f,
+        dirty: false,
+        fromChain: f.fromChain === true || !f.name.toLowerCase().endsWith(".py"),
+      }));
   } catch {
     return [];
   }
@@ -149,15 +155,39 @@ export function useIDE() {
 
   const updateFileCode = useCallback((id: string, code: string) => {
     setFiles((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, code, dirty: false } : f))
+      prev.map((f) =>
+        f.id === id && !f.fromChain ? { ...f, code, dirty: false } : f
+      )
     );
   }, []);
 
   const renameFile = useCallback((id: string, name: string) => {
     setFiles((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, name } : f))
+      prev.map((f) =>
+        f.id === id && !f.fromChain ? { ...f, name } : f
+      )
     );
   }, []);
+
+  const reorderFile = useCallback(
+    (sourceId: string, targetId: string, placement: FilePlacement) => {
+      if (sourceId === targetId) return;
+      setFiles((prev) => {
+        const source = prev.find((f) => f.id === sourceId);
+        if (!source) return prev;
+        const withoutSource = prev.filter((f) => f.id !== sourceId);
+        const targetIndex = withoutSource.findIndex((f) => f.id === targetId);
+        if (targetIndex === -1) return prev;
+        const insertAt = placement === "after" ? targetIndex + 1 : targetIndex;
+        return [
+          ...withoutSource.slice(0, insertAt),
+          source,
+          ...withoutSource.slice(insertAt),
+        ];
+      });
+    },
+    []
+  );
 
   const closeFile = useCallback(
     (id: string) => {
@@ -442,6 +472,7 @@ export function useIDE() {
     createFile,
     updateFileCode,
     renameFile,
+    reorderFile,
     closeFile,
     markFileSaved,
 
