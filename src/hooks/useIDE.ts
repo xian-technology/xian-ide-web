@@ -12,6 +12,8 @@ export interface ContractFile {
   fromChain?: boolean;
 }
 
+type FilePlacement = "before" | "after";
+
 export interface ConsoleEntry {
   id: string;
   type: "info" | "success" | "error" | "result";
@@ -27,6 +29,7 @@ export interface ContractMethod {
 const STORAGE_FILES = "xian-ide-files";
 const STORAGE_ACTIVE = "xian-ide-active-file";
 const STORAGE_NETWORK = "xian-ide-network-url";
+const STORAGE_LINTER = "xian-ide-linter-url";
 const DEFAULT_NETWORK = "http://127.0.0.1:26657";
 
 function loadFiles(): ContractFile[] {
@@ -40,7 +43,11 @@ function loadFiles(): ContractFile[] {
         (f): f is ContractFile =>
           f && typeof f.id === "string" && typeof f.name === "string" && typeof f.code === "string"
       )
-      .map((f) => ({ ...f, dirty: false }));
+      .map((f) => ({
+        ...f,
+        dirty: false,
+        fromChain: f.fromChain === true || !f.name.toLowerCase().endsWith(".py"),
+      }));
   } catch {
     return [];
   }
@@ -64,6 +71,14 @@ function loadNetwork(): string {
   }
 }
 
+function loadLinterUrl(): string {
+  try {
+    return linter.normalizeLinterUrl(localStorage.getItem(STORAGE_LINTER) || linter.DEFAULT_LINTER_URL);
+  } catch {
+    return linter.DEFAULT_LINTER_URL;
+  }
+}
+
 export function useIDE() {
   // Files (persisted) — lazy init reads localStorage once
   const [files, setFiles] = useState<ContractFile[]>(loadFiles);
@@ -82,6 +97,10 @@ export function useIDE() {
   const [networkUrl, setNetworkUrl] = useState<string>(loadNetwork);
   const [networkOnline, setNetworkOnline] = useState(false);
 
+  // Linter (persisted)
+  const [linterUrl, setLinterUrl] = useState<string>(loadLinterUrl);
+  const [linterAvailable, setLinterAvailable] = useState(false);
+
   // Contract explorer
   const [loadedMethods, setLoadedMethods] = useState<ContractMethod[]>([]);
   const [loadedVars, setLoadedVars] = useState<string[]>([]);
@@ -92,8 +111,9 @@ export function useIDE() {
   const [simulating, setSimulating] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [linting, setLinting] = useState(false);
-  const [linterAvailable, setLinterAvailable] = useState(false);
   const executingRef = useRef(false);
+  const explorerRequestRef = useRef(0);
+  const activeExplorerKeyRef = useRef<string | null>(null);
 
   // Lint errors keyed by file id, so they survive rehydration and stay scoped
   const [lintErrorsByFile, setLintErrorsByFile] = useState<Record<string, LintError[]>>({});
@@ -120,6 +140,11 @@ export function useIDE() {
       localStorage.setItem(STORAGE_NETWORK, networkUrl);
     } catch { /* ignore */ }
   }, [networkUrl]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_LINTER, linterUrl);
+    } catch { /* ignore */ }
+  }, [linterUrl]);
 
   // ── Console ────────────────────────────────────────────────
 
@@ -149,15 +174,39 @@ export function useIDE() {
 
   const updateFileCode = useCallback((id: string, code: string) => {
     setFiles((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, code, dirty: false } : f))
+      prev.map((f) =>
+        f.id === id && !f.fromChain ? { ...f, code, dirty: false } : f
+      )
     );
   }, []);
 
   const renameFile = useCallback((id: string, name: string) => {
     setFiles((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, name } : f))
+      prev.map((f) =>
+        f.id === id && !f.fromChain ? { ...f, name } : f
+      )
     );
   }, []);
+
+  const reorderFile = useCallback(
+    (sourceId: string, targetId: string, placement: FilePlacement) => {
+      if (sourceId === targetId) return;
+      setFiles((prev) => {
+        const source = prev.find((f) => f.id === sourceId);
+        if (!source) return prev;
+        const withoutSource = prev.filter((f) => f.id !== sourceId);
+        const targetIndex = withoutSource.findIndex((f) => f.id === targetId);
+        if (targetIndex === -1) return prev;
+        const insertAt = placement === "after" ? targetIndex + 1 : targetIndex;
+        return [
+          ...withoutSource.slice(0, insertAt),
+          source,
+          ...withoutSource.slice(insertAt),
+        ];
+      });
+    },
+    []
+  );
 
   const closeFile = useCallback(
     (id: string) => {
@@ -195,12 +244,31 @@ export function useIDE() {
     [log]
   );
 
-  // Check connection on mount
+  const changeLinterUrl = useCallback(
+    async (url: string) => {
+      const normalized = linter.normalizeLinterUrl(url);
+      setLinterUrl(normalized);
+      linter.setLinterUrl(normalized);
+      const available = await linter.checkLinterAvailable();
+      setLinterAvailable(available);
+      log(
+        available ? "success" : "error",
+        available ? `Linter connected: ${normalized}` : `Cannot reach linter: ${normalized}`
+      );
+    },
+    [log]
+  );
+
+  // Check connections on mount and endpoint changes
   useEffect(() => {
     rpc.setRpcUrl(networkUrl);
     rpc.checkConnection().then(setNetworkOnline);
-    linter.checkLinterAvailable().then(setLinterAvailable);
   }, [networkUrl]);
+
+  useEffect(() => {
+    linter.setLinterUrl(linterUrl);
+    linter.checkLinterAvailable().then(setLinterAvailable);
+  }, [linterUrl]);
 
   // ── Wallet ─────────────────────────────────────────────────
 
@@ -245,19 +313,49 @@ export function useIDE() {
 
   const loadContractMethods = useCallback(
     async (contractName: string) => {
+      const requestId = ++explorerRequestRef.current;
       try {
-        const methods = await rpc.getContractMethods(contractName);
-        const vars = await rpc.getContractVars(contractName);
-        setLoadedMethods(methods);
-        setLoadedVars(vars);
+        const [source, methods, vars] = await Promise.all([
+          rpc.getContractSource(contractName),
+          rpc.getContractMethods(contractName),
+          rpc.getContractVars(contractName),
+        ]);
+        if (requestId !== explorerRequestRef.current) return;
+        const exported = source ? rpc.exportedFunctionNames(source) : null;
+        const callable = exported
+          ? methods.filter((m) => exported.has(m.name))
+          : methods;
+        const allVars = [...vars.variables, ...vars.hashes];
+        setLoadedMethods(callable);
+        setLoadedVars(allVars);
         setExplorerContract(contractName);
-        log("info", `${contractName}: ${methods.length} functions, ${vars.length} variables`);
+        log(
+          "info",
+          `${contractName}: ${callable.length} callable, ${allVars.length} variables`
+        );
       } catch (e) {
+        if (requestId !== explorerRequestRef.current) return;
+        setLoadedMethods([]);
+        setLoadedVars([]);
+        setExplorerContract(contractName);
         log("error", `Failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     },
     [log]
   );
+
+  useEffect(() => {
+    if (activeFile?.fromChain !== true) {
+      explorerRequestRef.current += 1;
+      activeExplorerKeyRef.current = null;
+      return;
+    }
+    const explorerKey = `${networkUrl}:${activeFile.id}:${activeFile.name}`;
+    if (activeExplorerKeyRef.current === explorerKey) return;
+    activeExplorerKeyRef.current = explorerKey;
+    const contractName = activeFile.name;
+    void Promise.resolve().then(() => loadContractMethods(contractName));
+  }, [activeFile, loadContractMethods, networkUrl]);
 
   // ── Simulate ───────────────────────────────────────────────
 
@@ -420,7 +518,9 @@ export function useIDE() {
         setLintErrorsByFile((prev) => ({ ...prev, [fileId]: [] }));
       } else {
         for (const err of result.errors) {
-          const loc = err.line ? ` (line ${err.line}${err.col ? `:${err.col}` : ""})` : "";
+          const loc = err.line
+            ? ` (line ${err.line}${err.col !== undefined ? `:${err.col}` : ""})`
+            : "";
           log("error", `[${err.code}]${loc} ${err.message}`);
         }
         log("error", `Lint: ${result.errors.length} error(s)`);
@@ -442,6 +542,7 @@ export function useIDE() {
     createFile,
     updateFileCode,
     renameFile,
+    reorderFile,
     closeFile,
     markFileSaved,
 
@@ -478,8 +579,10 @@ export function useIDE() {
     executing,
 
     // Linter
+    linterUrl,
     linting,
     linterAvailable,
+    changeLinterUrl,
     lintErrors,
     lintCurrentFile,
   };
