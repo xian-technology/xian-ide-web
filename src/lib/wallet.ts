@@ -61,15 +61,18 @@ export async function sendCall(payload: {
   contract: string;
   function: string;
   kwargs: Record<string, unknown>;
-  chi: number;
+  chi?: number;
 }): Promise<unknown> {
+  const intent: Record<string, unknown> = {
+    contract: payload.contract,
+    function: payload.function,
+    kwargs: payload.kwargs,
+  };
+  if (payload.chi !== undefined) {
+    intent.chiSupplied = payload.chi;
+  }
   return request("xian_sendCall", [{
-    intent: {
-      contract: payload.contract,
-      function: payload.function,
-      kwargs: payload.kwargs,
-      chiSupplied: payload.chi,
-    },
+    intent,
   }]);
 }
 

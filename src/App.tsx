@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { useIDE, type ContractMethod } from "./hooks/useIDE";
 import { TEMPLATES } from "./lib/contract-templates";
-import { DEFAULT_LINTER_URL, normalizeLinterUrl } from "./lib/linter";
 import "./styles/ide.css";
 
 const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -117,7 +116,7 @@ function parseArg(value: string, type: string, argName: string): ArgParseResult 
 }
 
 function contractNameFromFileName(name: string): string {
-  return name.replace(/\.py$/i, "").trim();
+  return name.replace(/\.s\.py$/i, "").replace(/\.py$/i, "").trim();
 }
 
 function normalizeDraftFileName(value: string): string | null {
@@ -138,7 +137,6 @@ export default function App() {
   const [bottomTab, setBottomTab] = useState<"console" | "interact">("console");
   const [showNetworkModal, setShowNetworkModal] = useState(false);
   const [networkInput, setNetworkInput] = useState(ide.networkUrl);
-  const [linterInput, setLinterInput] = useState(ide.linterUrl);
   const [contractInput, setContractInput] = useState("");
   const [stateKey, setStateKey] = useState("");
   const [showTemplateModal, setShowTemplateModal] = useState(false);
@@ -154,7 +152,7 @@ export default function App() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const ideRef = useRef(ide);
-  const lintDecorationIdsRef = useRef<string[]>([]);
+  const diagnosticDecorationIdsRef = useRef<string[]>([]);
   const contractInputRef = useRef<HTMLInputElement | null>(null);
   const stateKeyInputRef = useRef<HTMLInputElement | null>(null);
   const consoleEndRef = useRef<HTMLDivElement>(null);
@@ -195,7 +193,7 @@ export default function App() {
     }, 2200);
   }, []);
 
-  // Apply lint errors as Monaco markers
+  // Apply compiler diagnostics as Monaco markers
   useEffect(() => {
     const ed = editorRef.current;
     const monaco = monacoRef.current;
@@ -203,7 +201,7 @@ export default function App() {
     const model = ed.getModel();
     if (!model) return;
     const lineCount = model.getLineCount();
-    const markers = ide.lintErrors.map((e) => ({
+    const markers = ide.diagnostics.map((e) => ({
       severity: e.severity === "warning"
         ? monaco.MarkerSeverity.Warning
         : monaco.MarkerSeverity.Error,
@@ -212,22 +210,22 @@ export default function App() {
       endLineNumber: e.endLine ?? e.line ?? 1,
       startColumn: e.col ?? 1,
       endColumn: e.endCol ?? (e.col ?? 1) + 1,
-      source: "xian-linter",
+      source: "xian-compiler",
     }));
-    monaco.editor.setModelMarkers(model, "xian-lint", markers);
+    monaco.editor.setModelMarkers(model, "xian-compiler", markers);
 
-    const lintLines = new Map<
+    const diagnosticLines = new Map<
       number,
       { severity: "error" | "warning"; messages: string[] }
     >();
-    for (const error of ide.lintErrors) {
+    for (const error of ide.diagnostics) {
       if (!error.line) continue;
       const line = Math.max(1, Math.min(lineCount, error.line));
       const severity = error.severity === "warning" ? "warning" : "error";
-      const current = lintLines.get(line);
+      const current = diagnosticLines.get(line);
       const message = `[${error.code}] ${error.message}`;
       if (!current) {
-        lintLines.set(line, { severity, messages: [message] });
+        diagnosticLines.set(line, { severity, messages: [message] });
         continue;
       }
       current.messages.push(message);
@@ -236,19 +234,19 @@ export default function App() {
       }
     }
 
-    lintDecorationIdsRef.current = ed.deltaDecorations(
-      lintDecorationIdsRef.current,
-      Array.from(lintLines.entries()).map(([line, info]) => ({
+    diagnosticDecorationIdsRef.current = ed.deltaDecorations(
+      diagnosticDecorationIdsRef.current,
+      Array.from(diagnosticLines.entries()).map(([line, info]) => ({
         range: new monaco.Range(line, 1, line, 1),
         options: {
-          glyphMarginClassName: `xian-lint-glyph xian-lint-glyph-${info.severity}`,
+          glyphMarginClassName: `xian-diagnostic-glyph xian-diagnostic-glyph-${info.severity}`,
           glyphMarginHoverMessage: {
             value: info.messages.map((message) => `- ${message}`).join("\n"),
           },
         },
       }))
     );
-  }, [ide.lintErrors, ide.activeFileId]);
+  }, [ide.diagnostics, ide.activeFileId]);
 
   // Editor mount
   const handleEditorMount = useCallback(
@@ -267,16 +265,15 @@ export default function App() {
           if (file.fromChain) { i.log("error", "Loaded chain contracts are read-only"); return; }
           const name = contractNameFromFileName(file.name);
           if (!name) { i.log("error", "Rename the file before deploying"); return; }
-          if (!i.walletConnected) { i.log("error", "Connect wallet first"); return; }
           i.deployContract(name, file.code);
         },
       });
 
       editorInstance.addAction({
-        id: "xian.lint",
-        label: "Xian: Lint Contract",
+        id: "xian.check",
+        label: "Xian: Check Contract",
         keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL],
-        run: () => { ideRef.current.lintCurrentFile(); },
+        run: () => { ideRef.current.checkCurrentFile(); },
       });
 
       editorInstance.addAction({
@@ -353,16 +350,6 @@ export default function App() {
     setNetworkInput(ide.networkUrl);
     setShowNetworkModal(true);
   }, [ide.networkUrl]);
-
-  const lintWithEndpoint = useCallback(() => {
-    if (!linterInput.trim()) return;
-    const normalized = normalizeLinterUrl(linterInput);
-    setLinterInput(normalized);
-    if (normalized !== ide.linterUrl) {
-      void ide.changeLinterUrl(normalized);
-    }
-    ide.lintCurrentFile();
-  }, [ide, linterInput]);
 
   // Auto-scroll console
   useEffect(() => {
@@ -458,8 +445,7 @@ export default function App() {
     ide.activeFile &&
     !activeFileFromChain &&
     activeContractName &&
-    !ide.deploying &&
-    ide.walletConnected
+    !ide.deploying
   );
 
   const startFileRename = useCallback((file: { id: string; name: string; fromChain?: boolean }) => {
@@ -705,38 +691,23 @@ export default function App() {
           </div>
         </section>
 
-        {/* Lint Contract */}
+        {/* Check Contract */}
         <section className="sidebar-section">
-          <div className="sidebar-header">Lint Contract</div>
+          <div className="sidebar-header">Check Contract</div>
           <div className="sidebar-content">
             <div className="field-group">
-              <input
-                className="ide-input ide-input-mono"
-                placeholder={DEFAULT_LINTER_URL}
-                value={linterInput}
-                onChange={(e) => setLinterInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    lintWithEndpoint();
-                  }
-                }}
-                aria-label="Linter endpoint"
-              />
               <button
                 className="ide-btn ide-btn-secondary ide-btn-sm sidebar-action"
-                disabled={!ide.activeFile || ide.linting || !linterInput.trim()}
-                onClick={lintWithEndpoint}
-                title={`Lint contract (${MOD}+Shift+L)`}
+                disabled={!ide.activeFile || ide.checking}
+                onClick={ide.checkCurrentFile}
+                title={`Check contract (${MOD}+Shift+L)`}
               >
                 <span className="ide-btn-label">
                   <AlertTriangle size={12} />
-                  {ide.linting ? "Linting..." : "Lint Contract"}
+                  {ide.checking ? "Checking..." : "Check Contract"}
                 </span>
                 <span className="kbd">{MOD}⇧L</span>
               </button>
-              {!ide.linterAvailable && (
-                <div className="sidebar-hint">Linter offline</div>
-              )}
             </div>
           </div>
         </section>
@@ -764,7 +735,7 @@ export default function App() {
                 title={
                   activeFileFromChain
                     ? "Loaded chain contracts are read-only"
-                    : `Deploy contract (${MOD}+Shift+D)`
+                    : `Compile and deploy contract (${MOD}+Shift+D)`
                 }
               >
                 <span className="ide-btn-label">
@@ -1145,8 +1116,8 @@ export default function App() {
           <span className="status-sep">·</span>
           {ide.deploying ? (
             <span className="status-busy">Deploying…</span>
-          ) : ide.linting ? (
-            <span className="status-busy">Linting…</span>
+          ) : ide.checking ? (
+            <span className="status-busy">Checking…</span>
           ) : ide.simulating ? (
             <span className="status-busy">Simulating…</span>
           ) : ide.executing ? (
@@ -1156,9 +1127,9 @@ export default function App() {
           )}
         </div>
         <div className="status-right">
-          {ide.lintErrors.length > 0 && (
-            <span className="status-errors" title="Lint errors">
-              <AlertTriangle size={11} /> {ide.lintErrors.length}
+          {ide.diagnostics.length > 0 && (
+            <span className="status-errors" title="Compiler diagnostics">
+              <AlertTriangle size={11} /> {ide.diagnostics.length}
             </span>
           )}
           {dirtyCount > 0 && (

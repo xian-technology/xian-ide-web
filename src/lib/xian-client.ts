@@ -1,6 +1,6 @@
 /**
  * Xian RPC client for the IDE.
- * Wraps ABCI queries for contract source, methods, state, simulation, and deployment.
+ * Wraps ABCI queries for contract source, methods, state, and simulation.
  */
 
 const DEFAULT_RPC = "http://127.0.0.1:26657";
@@ -36,7 +36,7 @@ async function abciQuery(path: string): Promise<unknown> {
 // ── Contract queries ──────────────────────────────────────────
 
 export async function getContractSource(contract: string): Promise<string | null> {
-  const result = await abciQuery(`/contract/${contract}`);
+  const result = await abciQuery(`/contract_source/${contract}`);
   return typeof result === "string" ? result : null;
 }
 

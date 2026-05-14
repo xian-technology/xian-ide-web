@@ -1,10 +1,10 @@
 # xian-ide-web
 
 `xian-ide-web` is the browser-based IDE for Xian smart contracts. It pairs
-the Monaco editor with a Xian-specific theme, the linter from
-`xian-linter`, contract templates, the JS client, and the injected wallet
-provider so contract authors can read, edit, lint, and deploy contracts
-without leaving the browser.
+the Monaco editor with a Xian-specific theme, compiler-backed diagnostics,
+contract templates, the JS client, and the injected wallet provider so
+contract authors can read, edit, check, simulate, deploy, and execute
+contract calls without leaving the browser.
 
 The app is a Vite + React + TypeScript single-page app. It is
 self-contained and consumes the public `@xian-tech/client` and
@@ -15,9 +15,12 @@ self-contained and consumes the public `@xian-tech/client` and
 ```mermaid
 flowchart LR
   Author["Contract author"] --> Editor["Monaco editor"]
-  Editor --> Linter["xian-linter bridge"]
+  Editor --> Compiler["@xian-tech/compiler WASM"]
+  Compiler --> Diagnostics["Compiler diagnostics"]
   Editor --> Simulator["Readonly calls and simulation"]
   Editor --> Wallet["Injected wallet provider"]
+  Compiler --> Wallet
+  Diagnostics --> Editor
   Wallet --> Node["Xian node"]
   Templates["Contract templates"] --> Editor
   Client["@xian-tech/client"] --> Simulator
@@ -26,25 +29,36 @@ flowchart LR
 
 ## Quick Start
 
+`npm run build:compiler` requires `wasm-pack` plus a Rust toolchain with the
+`wasm32-unknown-unknown` standard library installed.
+
 ```bash
 npm install
+npm run build:compiler
 npm run dev          # local dev server
-npm run build        # production build (tsc + vite build)
+npm run build        # compiler + tsc + vite production build
 npm run lint         # ESLint
+npm run test         # Vitest integration tests
 npm run preview      # serve the production build locally
 ```
 
 Open the printed URL in a browser. Connect a Xian wallet through the
-injected provider to enable contract submission.
+injected provider to deploy contracts and execute signed contract calls.
 
 ## Principles
 
-- **Browser-native authoring.** The full author loop — edit, lint,
-  simulate, submit — runs in the browser. There is no server-side
-  component owned by this repo.
-- **Linter is shared, not duplicated.** Linting goes through the same
-  rules used by `xian-linter`; this repo wires them into Monaco, it does
-  not redefine them.
+- **Browser-native authoring.** The full author loop — edit, check,
+  simulate, and submit contract calls — runs in the browser. There is no
+  server-side component owned by this repo.
+- **Deployment uses WASM artifacts.** The IDE compiles contract source in a
+  browser-local `@xian-tech/compiler` WASM package, submits
+  `deployment_artifacts` to `submission.submit_contract`, and lets the wallet
+  client estimate chi unless an explicit chi value is supplied by the caller.
+- **Compiler diagnostics are shared.** The Rust/WASM compiler package is the
+  same compiler core used by the IDE, JS SDK, Python SDK, and CLI. The IDE
+  renders the compiler's structured diagnostics directly in Monaco. The
+  architecture is tracked in
+  `../xian-contracting/docs/RUST_COMPILER_CORE.md`.
 - **Wallet via injected provider.** Transaction signing uses
   `@xian-tech/provider`'s injected-wallet discovery and the user's
   installed Xian wallet. The IDE never holds private keys.
@@ -62,8 +76,9 @@ injected provider to enable contract submission.
   - `hooks/` — custom React hooks (e.g. `useIDE`).
   - `lib/` — integration layer:
     - `xian-client.ts` — `@xian-tech/client` setup and helpers.
+    - `compiler.ts`, `compiler-client.ts`, `deployment.ts` — WASM diagnostics,
+      compilation, and artifact-backed contract deployment.
     - `wallet.ts` — injected-provider connection and transaction flow.
-    - `linter.ts` — bridge to the contract linter.
     - `contract-templates.ts` — starter contract templates.
   - `styles/`, `assets/` — Monaco theme, CSS, and static assets.
 - `public/` — static assets served as-is.
@@ -75,15 +90,18 @@ injected provider to enable contract submission.
 
 ```bash
 npm install
+npm run build:compiler
+npm run test
 npm run lint         # ESLint
 npm run build        # tsc -b && vite build (also runs the typecheck)
 ```
 
-The IDE has no server side, so functional validation is the build pipeline
-plus interactive testing in a browser with a Xian wallet installed.
+The IDE has no server side and no diagnostics service to configure. Functional
+validation is the WASM compiler build, Vitest coverage for
+diagnostics/compile/deploy payloads, the Vite production build, and interactive
+testing in a browser with a Xian wallet installed.
 
 ## Related Repos
 
-- [`../xian-linter/README.md`](../xian-linter/README.md) — contract linter consumed by the IDE
 - [`../xian-js/README.md`](../xian-js/README.md) — JS / TS SDK and provider contract
 - [`../xian-wallet-browser/README.md`](../xian-wallet-browser/README.md) — browser wallet that this IDE talks to via the injected provider

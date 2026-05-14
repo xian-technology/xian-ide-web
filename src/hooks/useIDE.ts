@@ -1,8 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import * as rpc from "../lib/xian-client";
 import * as wallet from "../lib/wallet";
-import * as linter from "../lib/linter";
-import type { LintError } from "../lib/linter";
+import {
+  compilerErrorMessage,
+  toEditorDiagnostic,
+  type EditorDiagnostic,
+} from "../lib/compiler";
+import {
+  compileContractArtifactsInBrowser,
+  diagnoseContractInBrowser,
+} from "../lib/compiler-client";
+import { deployContractSource } from "../lib/deployment";
 
 export interface ContractFile {
   id: string;
@@ -29,7 +37,6 @@ export interface ContractMethod {
 const STORAGE_FILES = "xian-ide-files";
 const STORAGE_ACTIVE = "xian-ide-active-file";
 const STORAGE_NETWORK = "xian-ide-network-url";
-const STORAGE_LINTER = "xian-ide-linter-url";
 const DEFAULT_NETWORK = "http://127.0.0.1:26657";
 
 function loadFiles(): ContractFile[] {
@@ -71,12 +78,8 @@ function loadNetwork(): string {
   }
 }
 
-function loadLinterUrl(): string {
-  try {
-    return linter.normalizeLinterUrl(localStorage.getItem(STORAGE_LINTER) || linter.DEFAULT_LINTER_URL);
-  } catch {
-    return linter.DEFAULT_LINTER_URL;
-  }
+function contractNameFromFileName(name: string): string {
+  return name.replace(/\.s\.py$/i, "").replace(/\.py$/i, "").trim();
 }
 
 export function useIDE() {
@@ -97,10 +100,6 @@ export function useIDE() {
   const [networkUrl, setNetworkUrl] = useState<string>(loadNetwork);
   const [networkOnline, setNetworkOnline] = useState(false);
 
-  // Linter (persisted)
-  const [linterUrl, setLinterUrl] = useState<string>(loadLinterUrl);
-  const [linterAvailable, setLinterAvailable] = useState(false);
-
   // Contract explorer
   const [loadedMethods, setLoadedMethods] = useState<ContractMethod[]>([]);
   const [loadedVars, setLoadedVars] = useState<string[]>([]);
@@ -110,14 +109,15 @@ export function useIDE() {
   const [deploying, setDeploying] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [executing, setExecuting] = useState(false);
-  const [linting, setLinting] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const deployingRef = useRef(false);
   const executingRef = useRef(false);
   const explorerRequestRef = useRef(0);
   const activeExplorerKeyRef = useRef<string | null>(null);
 
-  // Lint errors keyed by file id, so they survive rehydration and stay scoped
-  const [lintErrorsByFile, setLintErrorsByFile] = useState<Record<string, LintError[]>>({});
-  const lintErrors = activeFileId ? lintErrorsByFile[activeFileId] ?? [] : [];
+  // Compiler diagnostics keyed by file id, so they stay scoped per editor tab.
+  const [diagnosticsByFile, setDiagnosticsByFile] = useState<Record<string, EditorDiagnostic[]>>({});
+  const diagnostics = activeFileId ? diagnosticsByFile[activeFileId] ?? [] : [];
 
   // Random ID — collision-free without needing to inspect persisted files
   const genId = () =>
@@ -140,12 +140,6 @@ export function useIDE() {
       localStorage.setItem(STORAGE_NETWORK, networkUrl);
     } catch { /* ignore */ }
   }, [networkUrl]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_LINTER, linterUrl);
-    } catch { /* ignore */ }
-  }, [linterUrl]);
-
   // ── Console ────────────────────────────────────────────────
 
   const log = useCallback((type: ConsoleEntry["type"], message: string) => {
@@ -211,7 +205,7 @@ export function useIDE() {
   const closeFile = useCallback(
     (id: string) => {
       setFiles((prev) => prev.filter((f) => f.id !== id));
-      setLintErrorsByFile((prev) => {
+      setDiagnosticsByFile((prev) => {
         if (!(id in prev)) return prev;
         const next = { ...prev };
         delete next[id];
@@ -244,31 +238,11 @@ export function useIDE() {
     [log]
   );
 
-  const changeLinterUrl = useCallback(
-    async (url: string) => {
-      const normalized = linter.normalizeLinterUrl(url);
-      setLinterUrl(normalized);
-      linter.setLinterUrl(normalized);
-      const available = await linter.checkLinterAvailable();
-      setLinterAvailable(available);
-      log(
-        available ? "success" : "error",
-        available ? `Linter connected: ${normalized}` : `Cannot reach linter: ${normalized}`
-      );
-    },
-    [log]
-  );
-
-  // Check connections on mount and endpoint changes
+  // Check network connection on mount and endpoint changes
   useEffect(() => {
     rpc.setRpcUrl(networkUrl);
     rpc.checkConnection().then(setNetworkOnline);
   }, [networkUrl]);
-
-  useEffect(() => {
-    linter.setLinterUrl(linterUrl);
-    linter.checkLinterAvailable().then(setLinterAvailable);
-  }, [linterUrl]);
 
   // ── Wallet ─────────────────────────────────────────────────
 
@@ -401,42 +375,30 @@ export function useIDE() {
         log("error", "Connect wallet first");
         return;
       }
+      if (deployingRef.current) {
+        log("info", "Deploy already in progress");
+        return;
+      }
+      deployingRef.current = true;
       setDeploying(true);
       try {
-        log("info", `Simulating deployment of "${name}"...`);
-
-        const estResult = await rpc.simulate({
-          sender: walletAccount!,
-          contract: "submission",
-          function: "submit_contract",
-          kwargs: { name, code },
+        log("info", `Compiling ${name} for xian_vm_v1...`);
+        const result = await deployContractSource({
+          name,
+          source: code,
+          compile: compileContractArtifactsInBrowser,
+          sendCall: wallet.sendCall,
         });
-
-        if (!estResult.success) {
-          log("error", `Simulation failed: ${estResult.error ?? "Unknown error"}`);
-          setDeploying(false);
-          return;
-        }
-
-        const chi = estResult.chiUsed;
-        log("info", `Simulation OK — ${chi.toLocaleString()} chi needed. Sending to wallet...`);
-
-        const result = await wallet.sendCall({
-          contract: "submission",
-          function: "submit_contract",
-          kwargs: { name, code },
-          chi,
-        });
-
-        log("success", `Contract "${name}" deployed!`);
+        log("success", `${name} compiled and submitted`);
         log("result", JSON.stringify(result, null, 2));
       } catch (e) {
-        log("error", `Deploy failed: ${e instanceof Error ? e.message : String(e)}`);
+        log("error", `Deploy failed: ${compilerErrorMessage(e)}`);
       } finally {
+        deployingRef.current = false;
         setDeploying(false);
       }
     },
-    [walletConnected, walletAccount, log]
+    [log, walletConnected]
   );
 
   // ── Execute function on-chain ──────────────────────────────
@@ -507,29 +469,31 @@ export function useIDE() {
     [log]
   );
 
-  const lintCurrentFile = useCallback(async () => {
+  const checkCurrentFile = useCallback(async () => {
     if (!activeFile) { log("error", "No file open"); return; }
     const fileId = activeFile.id;
-    setLinting(true);
+    const moduleName = contractNameFromFileName(activeFile.name) || "contract";
+    setChecking(true);
     try {
-      const result = await linter.lintCode(activeFile.code);
-      if (result.success) {
-        log("success", "Lint passed — no errors");
-        setLintErrorsByFile((prev) => ({ ...prev, [fileId]: [] }));
+      const result = await diagnoseContractInBrowser(moduleName, activeFile.code, { lint: true });
+      const editorDiagnostics = result.map(toEditorDiagnostic);
+      if (editorDiagnostics.length === 0) {
+        log("success", "Compiler check passed — no diagnostics");
+        setDiagnosticsByFile((prev) => ({ ...prev, [fileId]: [] }));
       } else {
-        for (const err of result.errors) {
-          const loc = err.line
-            ? ` (line ${err.line}${err.col !== undefined ? `:${err.col}` : ""})`
+        for (const diagnostic of editorDiagnostics) {
+          const loc = diagnostic.line
+            ? ` (line ${diagnostic.line}:${diagnostic.col})`
             : "";
-          log("error", `[${err.code}]${loc} ${err.message}`);
+          log(diagnostic.severity === "warning" ? "info" : "error", `[${diagnostic.code}]${loc} ${diagnostic.message}`);
         }
-        log("error", `Lint: ${result.errors.length} error(s)`);
-        setLintErrorsByFile((prev) => ({ ...prev, [fileId]: result.errors }));
+        log("error", `Compiler: ${editorDiagnostics.length} diagnostic(s)`);
+        setDiagnosticsByFile((prev) => ({ ...prev, [fileId]: editorDiagnostics }));
       }
     } catch (e) {
-      log("error", `Lint failed: ${e instanceof Error ? e.message : String(e)}`);
+      log("error", `Compiler check failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setLinting(false);
+      setChecking(false);
     }
   }, [activeFile, log]);
 
@@ -578,12 +542,9 @@ export function useIDE() {
     simulating,
     executing,
 
-    // Linter
-    linterUrl,
-    linting,
-    linterAvailable,
-    changeLinterUrl,
-    lintErrors,
-    lintCurrentFile,
+    // Compiler diagnostics
+    checking,
+    diagnostics,
+    checkCurrentFile,
   };
 }

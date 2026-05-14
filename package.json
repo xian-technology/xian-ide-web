@@ -4,14 +4,19 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "npm run build:compiler",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build:compiler": "PATH=/opt/homebrew/opt/rustup/bin:$PATH npm --prefix ../xian-contracting/packages/xian-compiler-core/npm run build",
+    "build": "npm run build:compiler && tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pretest": "npm run build:compiler",
+    "test": "vitest run"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@xian-tech/client": "^0.1.6",
+    "@xian-tech/compiler": "file:../xian-contracting/packages/xian-compiler-core/npm",
     "@xian-tech/provider": "^0.1.6",
     "lucide-react": "^1.11.0",
     "monaco-editor": "^0.55.1",
@@ -30,7 +35,9 @@
     "globals": "^17.5.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.59.0",
-    "vite": "^8.0.10"
+    "vite": "^8.0.10",
+    "vite-plugin-wasm": "^3.6.0",
+    "vitest": "^4.1.5"
   },
   "overrides": {
     "dompurify": "^3.4.1"

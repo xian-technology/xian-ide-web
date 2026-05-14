@@ -427,13 +427,13 @@ button {
   overflow: hidden;
 }
 
-.monaco-editor .xian-lint-glyph {
+.monaco-editor .xian-diagnostic-glyph {
   display: flex !important;
   align-items: center;
   justify-content: center;
 }
 
-.monaco-editor .xian-lint-glyph::before {
+.monaco-editor .xian-diagnostic-glyph::before {
   content: "!";
   width: 13px;
   height: 13px;
@@ -445,11 +445,11 @@ button {
   text-align: center;
 }
 
-.monaco-editor .xian-lint-glyph-error::before {
+.monaco-editor .xian-diagnostic-glyph-error::before {
   background: var(--danger);
 }
 
-.monaco-editor .xian-lint-glyph-warning::before {
+.monaco-editor .xian-diagnostic-glyph-warning::before {
   background: var(--warning);
   color: #000;
 }
