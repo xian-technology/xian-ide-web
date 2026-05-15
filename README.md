@@ -7,8 +7,9 @@ contract authors can read, edit, check, simulate, deploy, and execute
 contract calls without leaving the browser.
 
 The app is a Vite + React + TypeScript single-page app. It is
-self-contained and consumes the public `@xian-tech/client` and
-`@xian-tech/provider` packages from npm.
+self-contained and uses the shared `@xian-tech/client` package from the
+sibling `../xian-js` checkout for local development, plus the injected
+wallet provider package.
 
 ## Browser Flow
 
@@ -34,9 +35,10 @@ flowchart LR
 
 ```bash
 npm install
+npm run build:client   # builds ../xian-js shared client dist
 npm run build:compiler
 npm run dev          # local dev server
-npm run build        # compiler + tsc + vite production build
+npm run build        # shared client + compiler + tsc + vite production build
 npm run lint         # ESLint
 npm run test         # Vitest integration tests
 npm run preview      # serve the production build locally
@@ -65,8 +67,9 @@ injected provider to deploy contracts and execute signed contract calls.
 - **Templates are starting points.** Contract templates live in
   `src/lib/contract-templates.ts` and are exposed in the editor as
   starter content; they are not a contract registry.
-- **Vendor SDKs from npm.** The IDE consumes published versions of
-  `@xian-tech/client` and `@xian-tech/provider`, not sibling checkouts.
+- **Shared client layer.** The IDE routes node reads, readonly calls, and
+  simulations through `@xian-tech/client` instead of maintaining a separate
+  RPC parser.
 
 ## Key Directories
 
@@ -90,6 +93,7 @@ injected provider to deploy contracts and execute signed contract calls.
 
 ```bash
 npm install
+npm run build:client
 npm run build:compiler
 npm run test
 npm run lint         # ESLint
