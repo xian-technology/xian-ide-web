@@ -27,6 +27,13 @@ jobs:
           ref: main
           path: xian-contracting
 
+      - name: Checkout xian-js
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository_owner }}/xian-js
+          ref: main
+          path: xian-js
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
