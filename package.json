@@ -19,6 +19,7 @@
     "@xian-tech/client": "file:../xian-js/packages/client",
     "@xian-tech/compiler": "file:../xian-contracting/packages/xian-compiler-core/npm",
     "@xian-tech/provider": "^0.1.6",
+    "@xian-tech/web-kit": "file:../xian-js/packages/web-kit",
     "lucide-react": "^1.11.0",
     "monaco-editor": "^0.55.1",
     "react": "^19.2.5",
