@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build:client": "npm --prefix ../xian-js run build --workspace @xian-tech/types && npm --prefix ../xian-js run build --workspace @xian-tech/client",
+    "build:client": "npm --prefix ../xian-js run build",
     "predev": "npm run build:client && npm run build:compiler",
     "dev": "vite",
     "build:compiler": "PATH=/opt/homebrew/opt/rustup/bin:$PATH npm --prefix ../xian-contracting/packages/xian-compiler-core/npm run build",
@@ -18,7 +18,8 @@
     "@monaco-editor/react": "^4.7.0",
     "@xian-tech/client": "file:../xian-js/packages/client",
     "@xian-tech/compiler": "file:../xian-contracting/packages/xian-compiler-core/npm",
-    "@xian-tech/provider": "^0.1.6",
+    "@xian-tech/provider": "file:../xian-js/packages/provider",
+    "@xian-tech/types": "file:../xian-js/packages/types",
     "@xian-tech/web-kit": "file:../xian-js/packages/web-kit",
     "lucide-react": "^1.11.0",
     "monaco-editor": "^0.55.1",
