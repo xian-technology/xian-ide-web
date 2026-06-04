@@ -3,7 +3,7 @@ import Editor, { type Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import {
   Upload, Search, Plus, X, Trash2, Terminal, Code2,
-  Wallet, FileCode, Plug, Braces, AlertTriangle, Command,
+  Wallet, FileCode, Plug, AlertTriangle, Command,
   Copy, Play, Send, Zap, MessageSquare, PanelLeftClose, PanelLeftOpen,
   Cloud, GripVertical,
 } from "lucide-react";
@@ -673,18 +673,7 @@ export default function App() {
                     setContractInput("");
                   }}
                 >
-                  <Code2 size={12} /> Source
-                </button>
-                <button
-                  className="ide-btn ide-btn-secondary ide-btn-sm"
-                  style={{ flex: 1 }}
-                  disabled={!contractInput.trim()}
-                  onClick={() => {
-                    ide.loadContractMethods(contractInput.trim());
-                    setBottomTab("interact");
-                  }}
-                >
-                  <Braces size={12} /> Methods
+                  <Code2 size={12} /> Load Contract
                 </button>
               </div>
             </div>
@@ -739,12 +728,8 @@ export default function App() {
                 }
               >
                 <span className="ide-btn-label">
-                  {activeFileFromChain ? <Cloud size={12} /> : <Upload size={12} />}
-                  {activeFileFromChain
-                    ? "Loaded from Chain"
-                    : ide.deploying
-                      ? "Deploying..."
-                      : "Deploy Contract"}
+                  <Upload size={12} />
+                  {ide.deploying ? "Deploying..." : "Deploy Contract"}
                 </span>
                 <span className="kbd">{MOD}⇧D</span>
               </button>
