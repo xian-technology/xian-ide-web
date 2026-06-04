@@ -639,23 +639,22 @@ button {
 }
 
 .method-args {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: minmax(100px, max-content) minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 4px;
+  align-items: center;
   margin-bottom: 8px;
 }
 
 .method-arg-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
+  display: contents;
 }
 
 .method-arg-label {
   font-size: 11px;
   color: var(--fg);
   min-width: 100px;
-  flex-shrink: 0;
   font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
@@ -667,7 +666,7 @@ button {
 }
 
 .method-arg-input {
-  flex: 1;
+  width: 100%;
   padding: 4px 8px;
   border-radius: 4px;
   border: 1px solid var(--line);
@@ -677,6 +676,7 @@ button {
   font-family: var(--font-mono);
   outline: none;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .method-arg-input:focus {
