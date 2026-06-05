@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
 import Editor, { type Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import {
@@ -173,7 +173,7 @@ export default function App() {
     )
   );
 
-  useEffect(() => { ideRef.current = ide; }, [ide]);
+  useLayoutEffect(() => { ideRef.current = ide; }, [ide]);
   useEffect(() => {
     try { localStorage.setItem(STORAGE_SIDEBAR_W, String(sidebarWidth)); } catch { /* ignore */ }
   }, [sidebarWidth]);
@@ -447,6 +447,19 @@ export default function App() {
     activeContractName &&
     !ide.deploying
   );
+  const activeEditorPath = ide.activeFile
+    ? `xian-ide://files/${ide.activeFile.id}`
+    : undefined;
+
+  const handleEditorChange = useCallback((val: string | undefined) => {
+    if (val === undefined) return;
+    const current = ideRef.current;
+    const file = current.activeFile;
+    if (!file || file.fromChain === true) return;
+    if (current.activeFileId !== file.id) return;
+    if (val === file.code) return;
+    current.updateFileCode(file.id, val);
+  }, []);
 
   const startFileRename = useCallback((file: { id: string; name: string; fromChain?: boolean }) => {
     if (file.fromChain) return;
@@ -695,7 +708,6 @@ export default function App() {
                   <AlertTriangle size={12} />
                   {ide.checking ? "Checking..." : "Check Contract"}
                 </span>
-                <span className="kbd">{MOD}⇧L</span>
               </button>
             </div>
           </div>
@@ -731,7 +743,6 @@ export default function App() {
                   <Upload size={12} />
                   {ide.deploying ? "Deploying..." : "Deploy Contract"}
                 </span>
-                <span className="kbd">{MOD}⇧D</span>
               </button>
             </div>
           </div>
@@ -787,14 +798,11 @@ export default function App() {
           <Editor
             theme="xian-dark"
             language="python"
+            path={activeEditorPath}
             value={ide.activeFile.code}
             beforeMount={handleEditorWillMount}
             onMount={handleEditorMount}
-            onChange={(val) => {
-              if (val !== undefined && ide.activeFileId) {
-                ide.updateFileCode(ide.activeFileId, val);
-              }
-            }}
+            onChange={handleEditorChange}
             options={{
               readOnly: ide.activeFile.fromChain === true,
               fontSize: 12,
