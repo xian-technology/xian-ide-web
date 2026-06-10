@@ -105,7 +105,7 @@ validation is the WASM compiler build, Vitest coverage for
 diagnostics/compile/deploy payloads, the Vite production build, and interactive
 testing in a browser with a Xian wallet installed.
 
-## Related Repos
+## Related Docs
 
 - [`../xian-js/README.md`](../xian-js/README.md) — JS / TS SDK and provider contract
 - [`../xian-wallet-browser/README.md`](../xian-wallet-browser/README.md) — browser wallet that this IDE talks to via the injected provider
