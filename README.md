@@ -74,8 +74,8 @@ injected provider to deploy contracts and execute signed contract calls.
 ## Key Directories
 
 - `src/` — application code:
-  - `App.tsx`, `main.tsx` — root component and Vite entry.
-  - `components/` — IDE UI components (editor wrapper, panels, terminals).
+  - `App.tsx`, `main.tsx` — root component (including the IDE layout, panels,
+    and terminal UI) and Vite entry.
   - `hooks/` — custom React hooks (e.g. `useIDE`).
   - `lib/` — integration layer:
     - `xian-client.ts` — `@xian-tech/client` setup and helpers.
