@@ -16,8 +16,6 @@ const MOD = isMac ? "⌘" : "Ctrl";
 
 const NETWORK_PRESETS: Array<{ name: string; url: string }> = [
   { name: "Local", url: "http://127.0.0.1:26657" },
-  { name: "Testnet", url: "https://testnet.xian.org" },
-  { name: "Mainnet", url: "https://node.xian.org" },
 ];
 
 const STORAGE_SIDEBAR_W = "xian-ide-sidebar-width";
