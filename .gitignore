@@ -3,3 +3,4 @@ dist
 .vite
 .artifacts/
 .DS_Store
+graphify-out/
