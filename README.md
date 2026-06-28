@@ -52,10 +52,10 @@ injected provider to deploy contracts and execute signed contract calls.
 - **Browser-native authoring.** The full author loop — edit, check,
   simulate, and submit contract calls — runs in the browser. There is no
   server-side component owned by this repo.
-- **Deployment uses WASM artifacts.** The IDE compiles contract source in a
-  browser-local `@xian-tech/compiler` WASM package, submits
-  `deployment_artifacts` to `submission.submit_contract`, and lets the wallet
-  client estimate chi unless an explicit chi value is supplied by the caller.
+- **Deployment submits source.** The IDE submits contract source to
+  `submission.submit_contract` and lets the wallet client estimate chi unless
+  an explicit chi value is supplied by the caller. Nodes compile submitted
+  source and persist canonical IR.
 - **Compiler diagnostics are shared.** The Rust/WASM compiler package is the
   same compiler core used by the IDE, JS SDK, Python SDK, and CLI. The IDE
   renders the compiler's structured diagnostics directly in Monaco. The
@@ -80,7 +80,7 @@ injected provider to deploy contracts and execute signed contract calls.
   - `lib/` — integration layer:
     - `xian-client.ts` — `@xian-tech/client` setup and helpers.
     - `compiler.ts`, `compiler-client.ts`, `deployment.ts` — WASM diagnostics,
-      compilation, and artifact-backed contract deployment.
+      artifact inspection, and source-backed contract deployment.
     - `wallet.ts` — injected-provider connection and transaction flow.
     - `contract-templates.ts` — starter contract templates.
   - `styles/`, `assets/` — Monaco theme, CSS, and static assets.

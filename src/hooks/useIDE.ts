@@ -7,7 +7,6 @@ import {
   type EditorDiagnostic,
 } from "../lib/compiler";
 import {
-  compileContractArtifactsInBrowser,
   diagnoseContractInBrowser,
 } from "../lib/compiler-client";
 import { deployContractSource } from "../lib/deployment";
@@ -382,14 +381,13 @@ export function useIDE() {
       deployingRef.current = true;
       setDeploying(true);
       try {
-        log("info", `Compiling ${name} for xian_vm_v1...`);
+        log("info", `Submitting ${name} source...`);
         const result = await deployContractSource({
           name,
           source: code,
-          compile: compileContractArtifactsInBrowser,
           sendCall: wallet.sendCall,
         });
-        log("success", `${name} compiled and submitted`);
+        log("success", `${name} submitted`);
         log("result", JSON.stringify(result, null, 2));
       } catch (e) {
         log("error", `Deploy failed: ${compilerErrorMessage(e)}`);

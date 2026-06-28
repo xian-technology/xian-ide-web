@@ -15,7 +15,7 @@ contracts.
 - `lib/` — integration layer:
   - `compiler.ts`, `compiler-client.ts` — WASM compiler loading and
     diagnostics.
-  - `deployment.ts` — artifact-backed `submission.submit_contract` payloads.
+  - `deployment.ts` — source-backed `submission.submit_contract` payloads.
   - `wallet.ts` — injected-provider connection and transaction flow.
   - `xian-client.ts` — `@xian-tech/client` setup for reads and simulation.
   - `contract-templates.ts` — starter contract templates.
@@ -24,9 +24,8 @@ contracts.
 
 ## Notes
 
-- `deployment.ts` and the compiler integration encode the `xian_vm_v1`
-  artifact contract; keep them aligned with `xian-contracting` rather than
-  changing payload shapes locally.
+- `deployment.ts` encodes the source-only deployment contract; compiler
+  integration remains for diagnostics and artifact inspection.
 
 ## Next
 

@@ -4,12 +4,23 @@ import { sendCall } from "./wallet";
 
 type MockWindow = Window & {
   xian?: {
-    provider?: {
+    providers?: Array<{
+      metadata: Record<string, unknown>;
+      provider: {
+        request: ReturnType<typeof vi.fn>;
+        on: ReturnType<typeof vi.fn>;
+        removeListener: ReturnType<typeof vi.fn>;
+      };
+    }>;
+  };
+  xianProviders?: Array<{
+    metadata: Record<string, unknown>;
+    provider: {
       request: ReturnType<typeof vi.fn>;
       on: ReturnType<typeof vi.fn>;
       removeListener: ReturnType<typeof vi.fn>;
     };
-  };
+  }>;
 };
 
 function installProvider() {
@@ -18,8 +29,13 @@ function installProvider() {
     on: vi.fn(),
     removeListener: vi.fn(),
   };
+  const record = {
+    metadata: { id: "test-wallet", name: "Test Wallet" },
+    provider,
+  };
   (globalThis as { window?: MockWindow }).window = {
-    xian: { provider },
+    xian: { providers: [record] },
+    xianProviders: [record],
   } as MockWindow;
   return provider;
 }
@@ -35,7 +51,7 @@ describe("wallet sendCall bridge", () => {
     await sendCall({
       contract: "submission",
       function: "submit_contract",
-      kwargs: { name: "con_counter", deployment_artifacts: {} },
+      kwargs: { name: "con_counter", code: "counter = Variable()\n" },
     });
 
     expect(provider.request).toHaveBeenCalledWith({
@@ -45,7 +61,7 @@ describe("wallet sendCall bridge", () => {
           intent: {
             contract: "submission",
             function: "submit_contract",
-            kwargs: { name: "con_counter", deployment_artifacts: {} },
+            kwargs: { name: "con_counter", code: "counter = Variable()\n" },
           },
         },
       ],
