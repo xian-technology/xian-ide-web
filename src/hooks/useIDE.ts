@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import * as rpc from "../lib/xian-client";
+import { DEFAULT_RPC } from "../lib/network";
 import * as wallet from "../lib/wallet";
 import {
   compilerErrorMessage,
@@ -36,7 +37,6 @@ export interface ContractMethod {
 const STORAGE_FILES = "xian-ide-files";
 const STORAGE_ACTIVE = "xian-ide-active-file";
 const STORAGE_NETWORK = "xian-ide-network-url";
-const DEFAULT_NETWORK = "http://127.0.0.1:26657";
 
 function loadFiles(): ContractFile[] {
   try {
@@ -71,9 +71,9 @@ function loadActiveId(files: ContractFile[]): string | null {
 
 function loadNetwork(): string {
   try {
-    return localStorage.getItem(STORAGE_NETWORK) || DEFAULT_NETWORK;
+    return localStorage.getItem(STORAGE_NETWORK) || DEFAULT_RPC;
   } catch {
-    return DEFAULT_NETWORK;
+    return DEFAULT_RPC;
   }
 }
 

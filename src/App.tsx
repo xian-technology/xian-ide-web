@@ -9,14 +9,12 @@ import {
 } from "lucide-react";
 import { useIDE, type ContractMethod } from "./hooks/useIDE";
 import { TEMPLATES } from "./lib/contract-templates";
+import { NETWORK_PRESETS } from "./lib/network";
 import "./styles/ide.css";
 
 const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl";
 
-const NETWORK_PRESETS: Array<{ name: string; url: string }> = [
-  { name: "Local", url: "http://127.0.0.1:26657" },
-];
 
 const STORAGE_SIDEBAR_W = "xian-ide-sidebar-width";
 const STORAGE_BOTTOM_H = "xian-ide-bottom-height";

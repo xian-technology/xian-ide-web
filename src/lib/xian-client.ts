@@ -1,6 +1,6 @@
 import { XianClient } from "@xian-tech/client";
 
-const DEFAULT_RPC = "http://127.0.0.1:26657";
+import { DEFAULT_RPC } from "./network";
 
 let rpcUrl = DEFAULT_RPC;
 let client = new XianClient({ rpcUrl });

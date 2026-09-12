@@ -109,3 +109,17 @@ testing in a browser with a Xian wallet installed.
 
 - [`../xian-js/README.md`](../xian-js/README.md) — JS / TS SDK and provider contract
 - [`../xian-wallet-browser/README.md`](../xian-wallet-browser/README.md) — browser wallet that this IDE talks to via the injected provider
+
+## Static Hosting
+
+Build with optional `VITE_XIAN_RPC_URL` and `VITE_XIAN_NETWORK_LABEL`
+environment variables to select a deployment-specific default RPC and named
+network preset. Without these values, the default remains
+`http://127.0.0.1:26657`. A saved browser network selection takes precedence;
+the configured preset remains available in Network settings.
+
+Serve `dist/` over HTTPS, preserving the emitted WASM assets and falling back
+to `index.html` for SPA routes. The RPC must be reachable from the browser over
+HTTPS and allow the site's origin if hosted separately. Build-time settings
+are public and must never contain credentials. Users must select the same
+network in their wallet before signing transactions.
