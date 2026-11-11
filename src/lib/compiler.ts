@@ -4,7 +4,8 @@ import {
   diagnoseContractJson,
 } from "@xian-tech/compiler";
 
-export const DEFAULT_VM_PROFILE = "xian_vm_v1";
+import { DEFAULT_VM_PROFILE } from "./profile";
+export { DEFAULT_VM_PROFILE };
 
 export interface ContractDeploymentArtifacts {
   format: string;

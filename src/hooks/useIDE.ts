@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { displayValue } from "../lib/contract-args";
 import * as rpc from "../lib/xian-client";
 import { DEFAULT_RPC } from "../lib/network";
 import * as wallet from "../lib/wallet";
@@ -350,7 +351,7 @@ export function useIDE() {
         if (result.success) {
           log("success", `Simulation OK — ${result.chiUsed} chi used`);
           if (result.result !== null && result.result !== undefined) {
-            log("result", JSON.stringify(result.result, null, 2));
+            log("result", displayValue(result.result, 2));
           }
         } else {
           log("error", `Simulation failed: ${result.error ?? "Unknown error"}`);
@@ -388,7 +389,7 @@ export function useIDE() {
           sendCall: wallet.sendCall,
         });
         log("success", `${name} submitted`);
-        log("result", JSON.stringify(result, null, 2));
+        log("result", displayValue(result, 2));
       } catch (e) {
         log("error", `Deploy failed: ${compilerErrorMessage(e)}`);
       } finally {
@@ -440,7 +441,7 @@ export function useIDE() {
         });
 
         log("success", `${contract}.${func}() executed`);
-        log("result", JSON.stringify(result, null, 2));
+        log("result", displayValue(result, 2));
       } catch (e) {
         log("error", `Execute failed: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
@@ -457,7 +458,7 @@ export function useIDE() {
     async (key: string) => {
       try {
         const result = await rpc.getState(key);
-        log("result", `${key} = ${JSON.stringify(result)}`);
+        log("result", `${key} = ${displayValue(result)}`);
         return result;
       } catch (e) {
         log("error", `Query failed: ${e instanceof Error ? e.message : String(e)}`);

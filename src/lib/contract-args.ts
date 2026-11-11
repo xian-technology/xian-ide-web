@@ -1,0 +1,60 @@
+import { encodeRuntime, fixed, parseContractJson } from "@xian-tech/client";
+import { DEFAULT_VM_PROFILE } from "./profile";
+
+type ArgParseResult =
+  | { ok: true; value: unknown }
+  | { ok: false; message: string };
+
+function exactInteger(text: string): bigint {
+  if (!/^[+-]?[0-9]+$/.test(text)) throw new Error("expected a decimal integer");
+  return BigInt(text);
+}
+
+function argumentValue(text: string, type: string): unknown {
+  switch (type) {
+    case "int": return exactInteger(text);
+    case "decimal": return fixed(text);
+    case "bool": {
+      if (text.toLowerCase() === "true") return true;
+      if (text.toLowerCase() === "false") return false;
+      throw new Error("expected true or false");
+    }
+    case "list":
+    case "dict":
+    case "any":
+    case "json": {
+      let value: unknown;
+      try {
+        value = parseContractJson(text);
+      } catch (error) {
+        if (type === "any" && error instanceof SyntaxError) return text;
+        throw error;
+      }
+      if (type === "list" && !Array.isArray(value)) throw new Error("expected a JSON array");
+      if (type === "dict" && !text.startsWith("{")) {
+        throw new Error("expected a JSON object");
+      }
+      return value;
+    }
+    default: return text;
+  }
+}
+
+export function parseArg(value: string, annotation: string, argName: string): ArgParseResult {
+  const text = value.trim();
+  if (!text) return { ok: true, value: null };
+  const type = annotation.toLowerCase().split("[", 1)[0];
+  if (type === "str" || !type) return { ok: true, value };
+  try {
+    const parsed = argumentValue(text, type);
+    // Wallet requests use JSON-compatible wrappers. Use the same shapes for
+    // simulation so the estimated call and signed call have identical inputs.
+    return { ok: true, value: JSON.parse(encodeRuntime(parsed, DEFAULT_VM_PROFILE)) };
+  } catch (error) {
+    return { ok: false, message: `${argName}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+export function displayValue(value: unknown, indent?: number): string {
+  return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item, indent);
+}

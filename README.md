@@ -44,6 +44,11 @@ npm run test         # Vitest integration tests
 npm run preview      # serve the production build locally
 ```
 
+The IDE builds and simulates contracts for the fresh-chain `xian_vm_v2`
+profile. Enter integer and decimal arguments as text (for example
+`9007199254740993` or `0.0125`). Typed fields and numeric literals inside JSON
+arguments preserve their source digits when constructing wallet requests.
+
 Open the printed URL in a browser. Connect a Xian wallet through the
 injected provider to deploy contracts and execute signed contract calls.
 

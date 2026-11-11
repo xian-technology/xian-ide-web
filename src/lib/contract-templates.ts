@@ -39,7 +39,7 @@ def change_metadata(key: str, value: Any):
     metadata[key] = value
 
 @export
-def transfer(amount: float, to: str):
+def transfer(amount: decimal, to: str):
     assert amount > 0, 'Cannot send non-positive amount'
     assert balances[ctx.caller] >= amount, 'Insufficient balance'
 
@@ -47,12 +47,12 @@ def transfer(amount: float, to: str):
     balances[to] += amount
 
 @export
-def approve(amount: float, to: str):
+def approve(amount: decimal, to: str):
     assert amount > 0, 'Cannot approve non-positive amount'
     approvals[ctx.caller, to] = amount
 
 @export
-def transfer_from(amount: float, to: str, main_account: str):
+def transfer_from(amount: decimal, to: str, main_account: str):
     assert amount > 0, 'Cannot send non-positive amount'
     assert approvals[main_account, ctx.caller] >= amount, 'Not enough approval'
     assert balances[main_account] >= amount, 'Insufficient balance'

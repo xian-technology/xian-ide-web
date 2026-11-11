@@ -1,13 +1,14 @@
 import { XianClient } from "@xian-tech/client";
 
+import { DEFAULT_VM_PROFILE } from "./profile";
 import { DEFAULT_RPC } from "./network";
 
 let rpcUrl = DEFAULT_RPC;
-let client = new XianClient({ rpcUrl });
+let client = new XianClient({ rpcUrl, vmProfile: DEFAULT_VM_PROFILE });
 
 export function setRpcUrl(url: string) {
   rpcUrl = url.replace(/\/+$/, "");
-  client = new XianClient({ rpcUrl });
+  client = new XianClient({ rpcUrl, vmProfile: DEFAULT_VM_PROFILE });
 }
 
 export function getRpcUrl(): string {

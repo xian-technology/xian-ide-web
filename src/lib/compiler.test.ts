@@ -115,7 +115,7 @@ function sha256(value: string): string {
 }
 
 describe("WASM compiler integration", () => {
-  it("builds hash-checked xian_vm_v1 deployment artifacts for a complex contract", () => {
+  it("builds hash-checked xian_vm_v2 deployment artifacts for a complex contract", () => {
     const artifacts = compileContractArtifacts(
       "con_complex_ledger",
       COMPLEX_LEDGER_SOURCE
@@ -138,7 +138,8 @@ describe("WASM compiler integration", () => {
   it("exposes stable compiler metadata to the browser bundle", () => {
     expect(getCompilerVersion()).toMatchObject({
       artifact_format: "xian_contract_artifact_v1",
-      vm_profile: DEFAULT_VM_PROFILE,
+      vm_profile: "xian_vm_v1",
+      supported_vm_profiles: expect.arrayContaining(["xian_vm_v2"]),
     });
   });
 

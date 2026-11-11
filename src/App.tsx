@@ -8,6 +8,7 @@ import {
   Cloud, GripVertical,
 } from "lucide-react";
 import { useIDE, type ContractMethod } from "./hooks/useIDE";
+import { parseArg } from "./lib/contract-args";
 import { TEMPLATES } from "./lib/contract-templates";
 import { NETWORK_PRESETS } from "./lib/network";
 import "./styles/ide.css";
@@ -19,10 +20,6 @@ const MOD = isMac ? "⌘" : "Ctrl";
 const STORAGE_SIDEBAR_W = "xian-ide-sidebar-width";
 const STORAGE_BOTTOM_H = "xian-ide-bottom-height";
 const STORAGE_SIDEBAR_COLLAPSED = "xian-ide-sidebar-collapsed";
-
-type ArgParseResult =
-  | { ok: true; value: unknown }
-  | { ok: false; message: string };
 
 type KwargsBuildResult =
   | { ok: true; kwargs: Record<string, unknown> }
@@ -89,26 +86,6 @@ function handleEditorWillMount(monaco: Monaco) {
       "scrollbarSlider.hoverBackground": "#ffffff25",
     },
   });
-}
-
-function parseArg(value: string, type: string, argName: string): ArgParseResult {
-  const t = (type || "").toLowerCase();
-  const raw = value.trim();
-  if (raw === "") return { ok: true, value: null };
-  if (t === "int" || t === "float" || t === "decimal" || t === "number") {
-    const n = Number(raw);
-    return { ok: true, value: Number.isFinite(n) ? n : value };
-  }
-  if (t === "bool") {
-    const normalized = raw.toLowerCase();
-    if (normalized === "true") return { ok: true, value: true };
-    if (normalized === "false") return { ok: true, value: false };
-    return { ok: false, message: `${argName} must be true or false` };
-  }
-  if (t === "list" || t === "dict" || t === "any" || t === "json") {
-    try { return { ok: true, value: JSON.parse(value) }; } catch { return { ok: true, value }; }
-  }
-  return { ok: true, value };
 }
 
 function contractNameFromFileName(name: string): string {

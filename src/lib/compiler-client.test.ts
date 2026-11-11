@@ -30,7 +30,7 @@ describe("browser compiler client", () => {
     expect(artifacts).toMatchObject({
       format: "xian_contract_artifact_v1",
       module_name: "con_counter",
-      vm_profile: "xian_vm_v1",
+      vm_profile: "xian_vm_v2",
     });
     expect(artifacts.source).toContain("def increment");
     expect(artifacts.vm_ir_json).toContain("increment");
@@ -57,6 +57,7 @@ describe("browser compiler client", () => {
     await expect(getCompilerVersionInBrowser()).resolves.toMatchObject({
       artifact_format: "xian_contract_artifact_v1",
       vm_profile: "xian_vm_v1",
+      supported_vm_profiles: expect.arrayContaining(["xian_vm_v2"]),
     });
   });
 });
