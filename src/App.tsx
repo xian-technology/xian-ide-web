@@ -8,7 +8,12 @@ import {
   Cloud, GripVertical,
 } from "lucide-react";
 import { useIDE, type ContractMethod } from "./hooks/useIDE";
-import { parseArg } from "./lib/contract-args";
+import {
+  buildMethodKwargs,
+  methodArgsKey,
+  type KwargsBuildResult,
+  type MethodArgInputs,
+} from "./lib/contract-args";
 import { TEMPLATES } from "./lib/contract-templates";
 import { NETWORK_PRESETS } from "./lib/network";
 import "./styles/ide.css";
@@ -21,9 +26,6 @@ const STORAGE_SIDEBAR_W = "xian-ide-sidebar-width";
 const STORAGE_BOTTOM_H = "xian-ide-bottom-height";
 const STORAGE_SIDEBAR_COLLAPSED = "xian-ide-sidebar-collapsed";
 
-type KwargsBuildResult =
-  | { ok: true; kwargs: Record<string, unknown> }
-  | { ok: false; message: string };
 
 type FileDropPlacement = "before" | "after";
 
@@ -113,7 +115,7 @@ export default function App() {
   const [contractInput, setContractInput] = useState("");
   const [stateKey, setStateKey] = useState("");
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [methodArgs, setMethodArgs] = useState<Record<string, Record<string, string>>>({});
+  const [methodArgs, setMethodArgs] = useState<MethodArgInputs>({});
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState("");
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
@@ -377,28 +379,15 @@ export default function App() {
     [bottomHeight]
   );
 
-  const setMethodArg = useCallback((method: string, arg: string, value: string) => {
-    setMethodArgs((prev) => ({
-      ...prev,
-      [method]: { ...(prev[method] ?? {}), [arg]: value },
-    }));
-  }, []);
-
-  const buildKwargs = useCallback(
-    (m: ContractMethod): KwargsBuildResult => {
-      const args = methodArgs[m.name] ?? {};
-      const out: Record<string, unknown> = {};
-      for (const a of m.arguments) {
-        const raw = args[a.name];
-        if (raw !== undefined && raw !== "") {
-          const parsed = parseArg(raw, a.type, `${m.name}.${a.name}`);
-          if (!parsed.ok) return parsed;
-          out[a.name] = parsed.value;
-        }
-      }
-      return { ok: true, kwargs: out };
+  const setMethodArg = useCallback(
+    (contract: string, method: string, arg: string, value: string) => {
+      const key = methodArgsKey(contract, method);
+      setMethodArgs((prev) => ({
+        ...prev,
+        [key]: { ...(prev[key] ?? {}), [arg]: value },
+      }));
     },
-    [methodArgs]
+    []
   );
 
   const dirtyCount = useMemo(() => ide.files.filter((f) => f.dirty).length, [ide.files]);
@@ -408,6 +397,13 @@ export default function App() {
   );
   const activeFileFromChain = ide.activeFile?.fromChain === true;
   const activeChainContractName = activeFileFromChain ? ide.activeFile?.name ?? "" : "";
+
+  const buildKwargs = useCallback(
+    (m: ContractMethod): KwargsBuildResult =>
+      buildMethodKwargs(methodArgs, activeChainContractName, m),
+    [methodArgs, activeChainContractName]
+  );
+
   const interactContractVisible = Boolean(
     activeChainContractName && ide.explorerContract === activeChainContractName
   );
@@ -886,8 +882,10 @@ export default function App() {
                         <input
                           className="method-arg-input"
                           placeholder={a.type}
-                          value={methodArgs[m.name]?.[a.name] ?? ""}
-                          onChange={(e) => setMethodArg(m.name, a.name, e.target.value)}
+                          value={methodArgs[methodArgsKey(activeChainContractName, m.name)]?.[a.name] ?? ""}
+                          onChange={(e) =>
+                            setMethodArg(activeChainContractName, m.name, a.name, e.target.value)
+                          }
                           aria-label={`${m.name} argument ${a.name}`}
                         />
                       </div>

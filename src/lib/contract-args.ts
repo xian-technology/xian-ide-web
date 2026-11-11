@@ -58,3 +58,31 @@ export function parseArg(value: string, annotation: string, argName: string): Ar
 export function displayValue(value: unknown, indent?: number): string {
   return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item, indent);
 }
+
+/** Typed argument inputs, keyed by `methodArgsKey(contract, method)` then argument name. */
+export type MethodArgInputs = Record<string, Record<string, string>>;
+
+export type KwargsBuildResult =
+  | { ok: true; kwargs: Record<string, unknown> }
+  | { ok: false; message: string };
+
+export function methodArgsKey(contract: string, method: string): string {
+  return `${contract}.${method}`;
+}
+
+export function buildMethodKwargs(
+  inputs: MethodArgInputs,
+  contract: string,
+  method: { name: string; arguments: Array<{ name: string; type: string }> },
+): KwargsBuildResult {
+  const args = inputs[methodArgsKey(contract, method.name)] ?? {};
+  const kwargs: Record<string, unknown> = {};
+  for (const argument of method.arguments) {
+    const raw = args[argument.name];
+    if (raw === undefined || raw === "") continue;
+    const parsed = parseArg(raw, argument.type, `${method.name}.${argument.name}`);
+    if (!parsed.ok) return parsed;
+    kwargs[argument.name] = parsed.value;
+  }
+  return { ok: true, kwargs };
+}

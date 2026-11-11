@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArg, displayValue } from "./contract-args";
+import { buildMethodKwargs, displayValue, methodArgsKey, parseArg } from "./contract-args";
 
 describe("V2 call arguments", () => {
   it("preserves decimals and wide integers for wallet requests and simulations", () => {
@@ -17,5 +17,22 @@ describe("V2 call arguments", () => {
       expect(parseArg(value, type, "amount").ok).toBe(false);
     }
     expect(parseArg("ordinary text", "Any", "text")).toEqual({ ok: true, value: "ordinary text" });
+  });
+});
+
+describe("method argument inputs", () => {
+  const transfer = { name: "transfer", arguments: [{ name: "amount", type: "decimal" }, { name: "to", type: "str" }] };
+
+  it("keeps typed arguments scoped to the contract they were entered for", () => {
+    const inputs = { [methodArgsKey("con_a", "transfer")]: { amount: "1.5", to: "bob" } };
+    expect(buildMethodKwargs(inputs, "con_a", transfer))
+      .toEqual({ ok: true, kwargs: { amount: { __fixed__: "1.5" }, to: "bob" } });
+    expect(buildMethodKwargs(inputs, "con_b", transfer)).toEqual({ ok: true, kwargs: {} });
+  });
+
+  it("reports the first unparsable argument", () => {
+    const inputs = { [methodArgsKey("con_a", "transfer")]: { amount: "1,5" } };
+    const built = buildMethodKwargs(inputs, "con_a", transfer);
+    expect(built.ok).toBe(false);
   });
 });
