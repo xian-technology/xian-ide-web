@@ -1,4 +1,5 @@
 export interface WalletSendCallRequest {
+  chainId: string;
   contract: string;
   function: string;
   kwargs: Record<string, unknown>;
@@ -8,6 +9,8 @@ export interface WalletSendCallRequest {
 export type WalletSendCall = (payload: WalletSendCallRequest) => Promise<unknown>;
 
 export interface DeployContractSourceOptions {
+  /** Chain the IDE reads from; the wallet refuses to sign for another chain. */
+  chainId: string;
   name: string;
   source: string;
   constructorArgs?: Record<string, unknown>;
@@ -34,6 +37,7 @@ export async function deployContractSource(
   }
 
   return options.sendCall({
+    chainId: options.chainId,
     contract: "submission",
     function: "submit_contract",
     kwargs,

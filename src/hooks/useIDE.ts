@@ -384,6 +384,7 @@ export function useIDE() {
       try {
         log("info", `Submitting ${name} source...`);
         const result = await deployContractSource({
+          chainId: await rpc.requireChainId(),
           name,
           source: code,
           sendCall: wallet.sendCall,
@@ -434,6 +435,7 @@ export function useIDE() {
         }
 
         const result = await wallet.sendCall({
+          chainId: await rpc.requireChainId(),
           contract,
           function: func,
           kwargs,

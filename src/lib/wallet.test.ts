@@ -23,9 +23,11 @@ type MockWindow = Window & {
   }>;
 };
 
-function installProvider() {
+function installProvider(outcome: Record<string, unknown> = {
+  submitted: true, accepted: true, finalized: true, receipt: { success: true }
+}) {
   const provider = {
-    request: vi.fn(async () => ({ accepted: true })),
+    request: vi.fn(async () => outcome),
     on: vi.fn(),
     removeListener: vi.fn(),
   };
@@ -49,6 +51,7 @@ describe("wallet sendCall bridge", () => {
     const provider = installProvider();
 
     await sendCall({
+      chainId: "xian-local",
       contract: "submission",
       function: "submit_contract",
       kwargs: { name: "con_counter", code: "counter = Variable()\n" },
@@ -59,10 +62,13 @@ describe("wallet sendCall bridge", () => {
       params: [
         {
           intent: {
+            chainId: "xian-local",
             contract: "submission",
             function: "submit_contract",
             kwargs: { name: "con_counter", code: "counter = Variable()\n" },
           },
+          mode: "checktx",
+          waitForTx: true,
         },
       ],
     });
@@ -72,6 +78,7 @@ describe("wallet sendCall bridge", () => {
     const provider = installProvider();
 
     await sendCall({
+      chainId: "xian-local",
       contract: "currency",
       function: "transfer",
       kwargs: { amount: 1, to: "bob" },
@@ -83,13 +90,32 @@ describe("wallet sendCall bridge", () => {
       params: [
         {
           intent: {
+            chainId: "xian-local",
             contract: "currency",
             function: "transfer",
             kwargs: { amount: 1, to: "bob" },
             chiSupplied: 50_000,
           },
+          mode: "checktx",
+          waitForTx: true,
         },
       ],
     });
+  });
+
+  it.each([
+    ["fails on-chain", { submitted: true, accepted: true, finalized: true,
+      receipt: { success: false, message: "AssertionError: Insufficient funds" } },
+      "Insufficient funds"],
+    ["is rejected by CheckTx", { submitted: true, accepted: false, finalized: false,
+      message: "Invalid nonce" }, "Invalid nonce"],
+  ])("rejects a call that %s", async (_label, outcome, message) => {
+    installProvider(outcome);
+    await expect(sendCall({
+      chainId: "xian-local",
+      contract: "currency",
+      function: "transfer",
+      kwargs: { amount: 1, to: "bob" },
+    })).rejects.toThrow(message);
   });
 });

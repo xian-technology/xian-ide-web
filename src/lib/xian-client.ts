@@ -116,6 +116,15 @@ export async function getChainId(): Promise<string> {
   return typeof network === "string" ? network : "unknown";
 }
 
+/** Chain id of the selected node, required before signing anything for it. */
+export async function requireChainId(): Promise<string> {
+  const chainId = await getChainId();
+  if (chainId === "unknown") {
+    throw new Error("Selected node did not report a chain id; cannot pin the wallet network.");
+  }
+  return chainId;
+}
+
 export async function getNonce(address: string): Promise<number> {
   return Number(await client.getNonce(address));
 }

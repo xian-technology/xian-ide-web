@@ -22,6 +22,7 @@ describe("contract deployment", () => {
     const sendCall = vi.fn<WalletSendCall>(async () => ({ txHash: "abc123" }));
 
     const result = await deployContractSource({
+      chainId: "xian-local",
       name: "con_counter",
       source: COUNTER_SOURCE,
       sendCall,
@@ -32,6 +33,7 @@ describe("contract deployment", () => {
     const payload = sendCall.mock.calls[0]?.[0];
     expect(payload).toBeDefined();
     if (!payload) return;
+    expect(payload.chainId).toBe("xian-local");
     expect(payload.contract).toBe("submission");
     expect(payload.function).toBe("submit_contract");
     expect(payload.chi).toBeUndefined();
