@@ -138,8 +138,8 @@ describe("WASM compiler integration", () => {
   it("exposes stable compiler metadata to the browser bundle", () => {
     expect(getCompilerVersion()).toMatchObject({
       artifact_format: "xian_contract_artifact_v1",
-      vm_profile: "xian_vm_v1",
-      supported_vm_profiles: expect.arrayContaining(["xian_vm_v2"]),
+      vm_profile: "xian_vm_v2",
+      supported_vm_profiles: expect.arrayContaining(["xian_vm_v1", "xian_vm_v2"]),
     });
   });
 

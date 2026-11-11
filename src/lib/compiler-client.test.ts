@@ -53,11 +53,19 @@ describe("browser compiler client", () => {
     );
   });
 
+  it("uses V2 numeric diagnostics without compiler options", async () => {
+    const exact = "@export\ndef quote(amount: decimal):\n    return quantize(amount, 2, 'floor')";
+    await expect(diagnoseContractInBrowser("con_quote", exact)).resolves.toEqual([]);
+    await expect(
+      diagnoseContractInBrowser("con_quote", exact.replace("amount: decimal", "amount: float"))
+    ).resolves.toContainEqual(expect.objectContaining({ severity: "error", code: "xian.lint.E014" }));
+  });
+
   it("exposes compiler metadata through the same browser surface", async () => {
     await expect(getCompilerVersionInBrowser()).resolves.toMatchObject({
       artifact_format: "xian_contract_artifact_v1",
-      vm_profile: "xian_vm_v1",
-      supported_vm_profiles: expect.arrayContaining(["xian_vm_v2"]),
+      vm_profile: "xian_vm_v2",
+      supported_vm_profiles: expect.arrayContaining(["xian_vm_v1", "xian_vm_v2"]),
     });
   });
 });
