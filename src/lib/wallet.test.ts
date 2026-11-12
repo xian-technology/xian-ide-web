@@ -118,4 +118,14 @@ describe("wallet sendCall bridge", () => {
       kwargs: { amount: 1, to: "bob" },
     })).rejects.toThrow(message);
   });
+
+  it("refuses to send when no wallet extension is injected", async () => {
+    (globalThis as { window?: MockWindow }).window = {} as MockWindow;
+    await expect(sendCall({
+      chainId: "xian-local",
+      contract: "currency",
+      function: "transfer",
+      kwargs: { amount: 1, to: "bob" },
+    })).rejects.toThrow("wallet extension not detected");
+  });
 });
