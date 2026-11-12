@@ -4,3 +4,7 @@ dist
 .artifacts/
 .DS_Store
 graphify-out/
+
+# Quality-tool output (crapper, dryer, mutator)
+.metrics/
+target/
