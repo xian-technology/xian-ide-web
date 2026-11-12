@@ -70,6 +70,28 @@ export function methodArgsKey(contract: string, method: string): string {
   return `${contract}.${method}`;
 }
 
+/** The text typed for one argument of `contract.method`, or "" when none. */
+export function methodArgInput(
+  inputs: MethodArgInputs,
+  contract: string,
+  method: string,
+  arg: string,
+): string {
+  return inputs[methodArgsKey(contract, method)]?.[arg] ?? "";
+}
+
+/** `inputs` with one argument of `contract.method` set; other methods keep theirs. */
+export function withMethodArgInput(
+  inputs: MethodArgInputs,
+  contract: string,
+  method: string,
+  arg: string,
+  value: string,
+): MethodArgInputs {
+  const key = methodArgsKey(contract, method);
+  return { ...inputs, [key]: { ...inputs[key], [arg]: value } };
+}
+
 export function buildMethodKwargs(
   inputs: MethodArgInputs,
   contract: string,

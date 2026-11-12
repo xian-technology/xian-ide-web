@@ -10,7 +10,8 @@ import {
 import { useIDE, type ContractMethod } from "./hooks/useIDE";
 import {
   buildMethodKwargs,
-  methodArgsKey,
+  methodArgInput,
+  withMethodArgInput,
   type KwargsBuildResult,
   type MethodArgInputs,
 } from "./lib/contract-args";
@@ -381,11 +382,7 @@ export default function App() {
 
   const setMethodArg = useCallback(
     (contract: string, method: string, arg: string, value: string) => {
-      const key = methodArgsKey(contract, method);
-      setMethodArgs((prev) => ({
-        ...prev,
-        [key]: { ...(prev[key] ?? {}), [arg]: value },
-      }));
+      setMethodArgs((prev) => withMethodArgInput(prev, contract, method, arg, value));
     },
     []
   );
@@ -882,7 +879,7 @@ export default function App() {
                         <input
                           className="method-arg-input"
                           placeholder={a.type}
-                          value={methodArgs[methodArgsKey(activeChainContractName, m.name)]?.[a.name] ?? ""}
+                          value={methodArgInput(methodArgs, activeChainContractName, m.name, a.name)}
                           onChange={(e) =>
                             setMethodArg(activeChainContractName, m.name, a.name, e.target.value)
                           }

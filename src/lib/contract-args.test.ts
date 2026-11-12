@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildMethodKwargs, displayValue, methodArgsKey, parseArg } from "./contract-args";
+import {
+  buildMethodKwargs,
+  displayValue,
+  methodArgInput,
+  methodArgsKey,
+  parseArg,
+  withMethodArgInput,
+} from "./contract-args";
 
 describe("V2 call arguments", () => {
   it("preserves decimals and wide integers for wallet requests and simulations", () => {
@@ -34,5 +41,18 @@ describe("method argument inputs", () => {
     const inputs = { [methodArgsKey("con_a", "transfer")]: { amount: "1,5" } };
     const built = buildMethodKwargs(inputs, "con_a", transfer);
     expect(built.ok).toBe(false);
+  });
+
+  it("stores typed text per contract and method without touching other inputs", () => {
+    let inputs = withMethodArgInput({}, "con_a", "transfer", "amount", "1");
+    inputs = withMethodArgInput(inputs, "con_a", "transfer", "to", "bob");
+    inputs = withMethodArgInput(inputs, "con_b", "transfer", "amount", "2");
+    inputs = withMethodArgInput(inputs, "con_a", "transfer", "amount", "3");
+
+    expect(methodArgInput(inputs, "con_a", "transfer", "amount")).toBe("3");
+    expect(methodArgInput(inputs, "con_a", "transfer", "to")).toBe("bob");
+    expect(methodArgInput(inputs, "con_b", "transfer", "amount")).toBe("2");
+    expect(methodArgInput(inputs, "con_b", "transfer", "to")).toBe("");
+    expect(methodArgInput(inputs, "con_a", "approve", "amount")).toBe("");
   });
 });
