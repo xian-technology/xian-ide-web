@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { OUT_OF_CHI_MESSAGE } from "@xian-tech/web-kit";
+
 import { sendCall } from "./wallet";
 
 type MockWindow = Window & {
@@ -109,6 +111,9 @@ describe("wallet sendCall bridge", () => {
       "Insufficient funds"],
     ["is rejected by CheckTx", { submitted: true, accepted: false, finalized: false,
       message: "Invalid nonce" }, "Invalid nonce"],
+    ["runs out of chi after the state changed", { submitted: true, accepted: true, finalized: true,
+      receipt: { success: false, message: "'Out of chi.'" } },
+      OUT_OF_CHI_MESSAGE],
   ])("rejects a call that %s", async (_label, outcome, message) => {
     installProvider(outcome);
     await expect(sendCall({
