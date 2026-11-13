@@ -11,7 +11,7 @@ import {
 import {
   diagnoseContractInBrowser,
 } from "../lib/compiler-client";
-import { deployContractSource } from "../lib/deployment";
+import { deployContractSource, executeContractCall } from "../lib/deployment";
 
 export interface ContractFile {
   id: string;
@@ -418,28 +418,15 @@ export function useIDE() {
       try {
         log("info", `Simulating ${contract}.${func}()...`);
 
-        let chiBudget = chi;
-        if (!chiBudget) {
-          const est = await rpc.simulate({
-            sender: walletAccount!,
-            contract,
-            function: func,
-            kwargs,
-          });
-          if (!est.success) {
-            log("error", `Simulation failed: ${est.error ?? "Unknown error"}`);
-            return;
-          }
-          chiBudget = est.chiUsed;
-          log("info", `Simulation OK — ${chiBudget.toLocaleString()} chi. Sending to wallet...`);
-        }
-
-        const result = await wallet.sendCall({
+        const result = await executeContractCall({
           chainId: await rpc.requireChainId(),
+          sender: walletAccount!,
           contract,
           function: func,
           kwargs,
-          chi: chiBudget,
+          chi,
+          simulate: rpc.simulate,
+          sendCall: wallet.sendCall,
         });
 
         log("success", `${contract}.${func}() executed`);

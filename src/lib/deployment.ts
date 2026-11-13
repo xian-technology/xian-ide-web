@@ -1,3 +1,5 @@
+import { suggestChiSupplied } from "@xian-tech/client";
+
 export interface WalletSendCallRequest {
   chainId: string;
   contract: string;
@@ -41,5 +43,53 @@ export async function deployContractSource(
     contract: "submission",
     function: "submit_contract",
     kwargs,
+  });
+}
+
+export type SimulateCall = (request: {
+  sender: string;
+  contract: string;
+  function: string;
+  kwargs: Record<string, unknown>;
+}) => Promise<{ success: boolean; chiUsed: number; error?: string }>;
+
+export interface ExecuteContractCallOptions {
+  /** Chain the IDE reads from; the wallet refuses to sign for another chain. */
+  chainId: string;
+  sender: string;
+  contract: string;
+  function: string;
+  kwargs: Record<string, unknown>;
+  /** Explicit chi budget; without one the call is simulated first. */
+  chi?: number;
+  simulate: SimulateCall;
+  sendCall: WalletSendCall;
+}
+
+/**
+ * Submit a contract call. A failing simulation stops it before the wallet;
+ * a passing one is budgeted at its measured cost plus the SDK's standard
+ * headroom, since the signed transaction can cost slightly more.
+ */
+export async function executeContractCall(options: ExecuteContractCallOptions): Promise<unknown> {
+  let chi = options.chi;
+  if (!chi) {
+    const simulation = await options.simulate({
+      sender: options.sender,
+      contract: options.contract,
+      function: options.function,
+      kwargs: options.kwargs,
+    });
+    if (!simulation.success) {
+      throw new Error(`Simulation failed: ${simulation.error || "Unknown error"}`);
+    }
+    chi = suggestChiSupplied(simulation.chiUsed);
+  }
+  return options.sendCall({
+    chainId: options.chainId,
+    contract: options.contract,
+    function: options.function,
+    kwargs: options.kwargs,
+    chi,
   });
 }
