@@ -463,7 +463,7 @@ export function useIDE() {
     const moduleName = contractNameFromFileName(activeFile.name) || "contract";
     setChecking(true);
     try {
-      const result = await diagnoseContractInBrowser(moduleName, activeFile.code, { lint: true });
+      const result = await diagnoseContractInBrowser(moduleName, activeFile.code);
       const editorDiagnostics = result.map(toEditorDiagnostic);
       if (editorDiagnostics.length === 0) {
         log("success", "Compiler check passed — no diagnostics");

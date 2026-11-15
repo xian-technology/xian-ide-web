@@ -17,10 +17,6 @@ export interface ContractDeploymentArtifacts {
   [key: string]: unknown;
 }
 
-export interface CompileContractOptions {
-  lint?: boolean;
-}
-
 export interface CompilerSourceRange {
   start_line: number;
   start_column: number;
@@ -45,12 +41,7 @@ export interface EditorDiagnostic {
   endCol: number;
 }
 
-function compileOptionsJson(options: CompileContractOptions | undefined): string {
-  return JSON.stringify({
-    lint: options?.lint ?? true,
-    vm_profile: DEFAULT_VM_PROFILE,
-  });
-}
+const COMPILE_OPTIONS_JSON = JSON.stringify({ vm_profile: DEFAULT_VM_PROFILE });
 
 function parseArtifactJson(raw: string): ContractDeploymentArtifacts {
   const parsed = JSON.parse(raw) as unknown;
@@ -125,14 +116,9 @@ function validateArtifactShape(
 
 export function compileContractArtifacts(
   moduleName: string,
-  source: string,
-  options?: CompileContractOptions
+  source: string
 ): ContractDeploymentArtifacts {
-  const rawArtifact = compileContractArtifactJson(
-    moduleName,
-    source,
-    compileOptionsJson(options)
-  );
+  const rawArtifact = compileContractArtifactJson(moduleName, source, COMPILE_OPTIONS_JSON);
   const artifact = parseArtifactJson(rawArtifact);
   validateArtifactShape(moduleName, artifact);
   return artifact;
@@ -140,14 +126,9 @@ export function compileContractArtifacts(
 
 export function diagnoseContract(
   moduleName: string,
-  source: string,
-  options?: CompileContractOptions
+  source: string
 ): CompilerDiagnostic[] {
-  const rawDiagnostics = diagnoseContractJson(
-    moduleName,
-    source,
-    compileOptionsJson(options)
-  );
+  const rawDiagnostics = diagnoseContractJson(moduleName, source, COMPILE_OPTIONS_JSON);
   return parseDiagnosticsJson(rawDiagnostics);
 }
 

@@ -1,8 +1,4 @@
-import type {
-  CompileContractOptions,
-  CompilerDiagnostic,
-  ContractDeploymentArtifacts,
-} from "./compiler";
+import type { CompilerDiagnostic, ContractDeploymentArtifacts } from "./compiler";
 import {
   compileContractArtifacts,
   diagnoseContract,
@@ -11,18 +7,16 @@ import {
 
 export async function compileContractArtifactsInBrowser(
   moduleName: string,
-  source: string,
-  options?: CompileContractOptions
+  source: string
 ): Promise<ContractDeploymentArtifacts> {
-  return compileContractArtifacts(moduleName, source, options);
+  return compileContractArtifacts(moduleName, source);
 }
 
 export async function diagnoseContractInBrowser(
   moduleName: string,
-  source: string,
-  options?: CompileContractOptions
+  source: string
 ): Promise<CompilerDiagnostic[]> {
-  return diagnoseContract(moduleName, source, options);
+  return diagnoseContract(moduleName, source);
 }
 
 export async function getCompilerVersionInBrowser(): Promise<Record<string, unknown>> {

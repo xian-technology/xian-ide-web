@@ -23,8 +23,7 @@ describe("browser compiler client", () => {
   it("builds deployment artifacts through the shared WASM compiler", async () => {
     const artifacts = await compileContractArtifactsInBrowser(
       "con_counter",
-      VALID_SOURCE,
-      { lint: true }
+      VALID_SOURCE
     );
 
     expect(artifacts).toMatchObject({
@@ -39,8 +38,7 @@ describe("browser compiler client", () => {
   it("returns structured diagnostics without a service dependency", async () => {
     const diagnostics = await diagnoseContractInBrowser(
       "con_bad",
-      "value = 1\n\n@export\ndef set_value():\n    global value\n    value = 2\n",
-      { lint: true }
+      "value = 1\n\n@export\ndef set_value():\n    global value\n    value = 2\n"
     );
 
     expect(diagnostics).toEqual(
@@ -53,7 +51,7 @@ describe("browser compiler client", () => {
     );
   });
 
-  it("uses V2 numeric diagnostics without compiler options", async () => {
+  it("uses V2 numeric diagnostics", async () => {
     const exact = "@export\ndef quote(amount: decimal):\n    return quantize(amount, 2, 'floor')";
     await expect(diagnoseContractInBrowser("con_quote", exact)).resolves.toEqual([]);
     await expect(
