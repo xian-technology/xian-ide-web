@@ -73,7 +73,7 @@ describe("contract deployment", () => {
 describe("contract execution", () => {
   const call = { chainId: "xian-local", sender: "alice", contract: "con_counter", function: "increment", kwargs: { by: 2 } };
 
-  it("supplies exactly the simulated cost", async () => {
+  it("supplies the simulated cost plus the 2-chi margin", async () => {
     const simulate = vi.fn<SimulateCall>(async () => ({ success: true, chiUsed: 1_000 }));
     const sendCall = vi.fn<WalletSendCall>(async () => ({ txHash: "abc123" }));
 
@@ -81,7 +81,15 @@ describe("contract execution", () => {
 
     expect(result).toEqual({ txHash: "abc123" });
     expect(simulate).toHaveBeenCalledWith({ sender: "alice", contract: "con_counter", function: "increment", kwargs: { by: 2 } });
-    expect(sendCall).toHaveBeenCalledWith({ chainId: "xian-local", contract: "con_counter", function: "increment", kwargs: { by: 2 }, chi: 1_000 });
+    expect(sendCall).toHaveBeenCalledWith({ chainId: "xian-local", contract: "con_counter", function: "increment", kwargs: { by: 2 }, chi: 1_002 });
+  });
+
+  it("refuses a call whose simulated cost exceeds the transaction cap", async () => {
+    const simulate = vi.fn<SimulateCall>(async () => ({ success: true, chiUsed: 200_001 }));
+    const sendCall = vi.fn<WalletSendCall>(async () => ({}));
+
+    await expect(executeContractCall({ ...call, simulate, sendCall })).rejects.toThrow(/exceeds the per-transaction limit/);
+    expect(sendCall).not.toHaveBeenCalled();
   });
 
   it("keeps an explicit chi budget and skips simulation", async () => {

@@ -1,3 +1,5 @@
+import { chiToSupply } from "@xian-tech/client";
+
 export interface WalletSendCallRequest {
   chainId: string;
   contract: string;
@@ -66,8 +68,8 @@ export interface ExecuteContractCallOptions {
 
 /**
  * Submit a contract call. A failing simulation stops it before the wallet;
- * a passing one supplies exactly its simulated cost, which execution
- * charges for the same chain state.
+ * a passing one supplies its simulated cost plus the SDK's fixed margin
+ * (`chiToSupply`), which absorbs a transaction landing in between.
  */
 export async function executeContractCall(options: ExecuteContractCallOptions): Promise<unknown> {
   let chi = options.chi;
@@ -81,7 +83,7 @@ export async function executeContractCall(options: ExecuteContractCallOptions): 
     if (!simulation.success) {
       throw new Error(`Simulation failed: ${simulation.error || "Unknown error"}`);
     }
-    chi = simulation.chiUsed;
+    chi = chiToSupply(simulation.chiUsed);
   }
   return options.sendCall({
     chainId: options.chainId,
