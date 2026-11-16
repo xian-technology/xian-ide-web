@@ -25,10 +25,37 @@ describe("V2 call arguments", () => {
     }
     expect(parseArg("ordinary text", "Any", "text")).toEqual({ ok: true, value: "ordinary text" });
   });
+
+  it("keeps empty optional numeric input unset and untyped text untrimmed", () => {
+    expect(parseArg("", "int", "amount")).toEqual({ ok: true, value: null });
+    expect(parseArg("  ", "decimal", "amount")).toEqual({ ok: true, value: null });
+    expect(parseArg("  untyped text  ", "", "value")).toEqual({ ok: true, value: "  untyped text  " });
+  });
+
+  it("parses boolean fields explicitly and refuses other words", () => {
+    expect(parseArg("TRUE", "bool", "flag")).toEqual({ ok: true, value: true });
+    expect(parseArg("false", "bool", "flag")).toEqual({ ok: true, value: false });
+    expect(parseArg("yes", "bool", "flag").ok).toBe(false);
+  });
 });
 
 describe("method argument inputs", () => {
   const transfer = { name: "transfer", arguments: [{ name: "amount", type: "decimal" }, { name: "to", type: "str" }] };
+
+  it("leaves inherited object names empty instead of supplying a prototype value", () => {
+    const method = { name: "choose", arguments: [{ name: "constructor", type: "str" }, { name: "toString", type: "str" }] };
+    expect(methodArgInput({}, "con_a", "choose", "constructor")).toBe("");
+    expect(methodArgInput({ "con_a.choose": {} }, "con_a", "choose", "toString")).toBe("");
+    expect(buildMethodKwargs({}, "con_a", method)).toEqual({ ok: true, kwargs: {} });
+  });
+
+  it("preserves a parameter named __proto__ as wallet JSON data", () => {
+    const method = { name: "choose", arguments: [{ name: "__proto__", type: "str" }] };
+    const inputs = withMethodArgInput({}, "con_a", "choose", "__proto__", "selected");
+    const result = buildMethodKwargs(inputs, "con_a", method);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(JSON.stringify(result.kwargs)).toBe('{"__proto__":"selected"}');
+  });
 
   it("keeps typed arguments scoped to the contract they were entered for", () => {
     const inputs = { [methodArgsKey("con_a", "transfer")]: { amount: "1.5", to: "bob" } };

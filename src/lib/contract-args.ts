@@ -77,7 +77,8 @@ export function methodArgInput(
   method: string,
   arg: string,
 ): string {
-  return inputs[methodArgsKey(contract, method)]?.[arg] ?? "";
+  const args = inputs[methodArgsKey(contract, method)];
+  return args !== undefined && Object.hasOwn(args, arg) ? args[arg] ?? "" : "";
 }
 
 /** `inputs` with one argument of `contract.method` set; other methods keep theirs. */
@@ -97,14 +98,13 @@ export function buildMethodKwargs(
   contract: string,
   method: { name: string; arguments: Array<{ name: string; type: string }> },
 ): KwargsBuildResult {
-  const args = inputs[methodArgsKey(contract, method.name)] ?? {};
-  const kwargs: Record<string, unknown> = {};
+  const entries: [string, unknown][] = [];
   for (const argument of method.arguments) {
-    const raw = args[argument.name];
-    if (raw === undefined || raw === "") continue;
+    const raw = methodArgInput(inputs, contract, method.name, argument.name);
+    if (raw === "") continue;
     const parsed = parseArg(raw, argument.type, `${method.name}.${argument.name}`);
     if (!parsed.ok) return parsed;
-    kwargs[argument.name] = parsed.value;
+    entries.push([argument.name, parsed.value]);
   }
-  return { ok: true, kwargs };
+  return { ok: true, kwargs: Object.fromEntries(entries) };
 }
