@@ -57,6 +57,8 @@ injected provider to deploy contracts and execute signed contract calls.
 - **Browser-native authoring.** The full author loop — edit, check,
   simulate, and submit contract calls — runs in the browser. There is no
   server-side component owned by this repo.
+- **Local editor assets.** Monaco and its worker are bundled with the app;
+  loading the editor does not execute code from a third-party CDN.
 - **Deployment submits source.** The IDE submits contract source to
   `submission.submit_contract` and lets the wallet client estimate chi unless
   an explicit chi value is supplied by the caller. Nodes compile submitted
