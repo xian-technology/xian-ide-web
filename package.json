@@ -7,7 +7,7 @@
     "build:client": "npm --prefix ../xian-js run build",
     "predev": "npm run build:client && npm run build:compiler",
     "dev": "vite",
-    "build:compiler": "PATH=/opt/homebrew/opt/rustup/bin:$PATH npm --prefix ../xian-contracting/packages/xian-compiler-core/npm run build",
+    "build:compiler": "npm --prefix ../xian-contracting/packages/xian-compiler-core/npm run build",
     "build": "npm run build:client && npm run build:compiler && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

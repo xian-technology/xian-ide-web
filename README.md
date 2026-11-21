@@ -30,8 +30,8 @@ flowchart LR
 
 ## Quick Start
 
-`npm run build:compiler` requires `wasm-pack` plus a Rust toolchain with the
-`wasm32-unknown-unknown` standard library installed.
+`npm run build:compiler` requires `wasm-pack` and Rust 1.98 or newer on `PATH`.
+Install the `wasm32-unknown-unknown` target for that toolchain.
 
 ```bash
 npm install
