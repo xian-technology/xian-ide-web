@@ -132,16 +132,26 @@ export function diagnoseContract(
   return parseDiagnosticsJson(rawDiagnostics);
 }
 
-export function toEditorDiagnostic(diagnostic: CompilerDiagnostic): EditorDiagnostic {
-  const range = diagnostic.range;
+/** Monaco indexes UTF-16 code units, while the compiler reports code points. */
+function editorColumn(line: string | undefined, column: number): number {
+  return (line === undefined ? column : [...line].slice(0, column).join("").length) + 1;
+}
+
+export function toEditorDiagnostic(diagnostic: CompilerDiagnostic, sourceLines: readonly string[]): EditorDiagnostic {
+  const {
+    start_line: line,
+    start_column: column,
+    end_line: endLine,
+    end_column: endColumn,
+  } = diagnostic.range ?? { start_line: 1, start_column: 0, end_line: 1, end_column: 0 };
   return {
     severity: diagnostic.severity === "warning" ? "warning" : "error",
     code: diagnostic.code,
     message: diagnostic.message,
-    line: range?.start_line ?? 1,
-    col: (range?.start_column ?? 0) + 1,
-    endLine: range?.end_line ?? range?.start_line ?? 1,
-    endCol: (range?.end_column ?? range?.start_column ?? 0) + 1,
+    line,
+    col: editorColumn(sourceLines[line - 1], column),
+    endLine,
+    endCol: editorColumn(sourceLines[endLine - 1], endColumn),
   };
 }
 

@@ -24,36 +24,21 @@ export async function getContractSource(contract: string): Promise<string | null
 export async function getContractMethods(
   contract: string
 ): Promise<Array<{ name: string; arguments: Array<{ name: string; type: string }> }>> {
-  return client.getContractMethods(contract);
+  const [ir, methods] = await Promise.all([
+    client.getContractIr(contract),
+    client.getContractMethods(contract),
+  ]);
+  if (ir === null) return [];
+
+  const { functions } = JSON.parse(ir) as { functions: { name: string; visibility: string }[] };
+  const exported = new Set(functions.filter((func) => func.visibility === "export").map((func) => func.name));
+  return methods.filter((method) => exported.has(method.name));
 }
 
 export async function getContractVars(
   contract: string
 ): Promise<{ variables: string[]; hashes: string[] }> {
   return client.getContractVars(contract);
-}
-
-/**
- * Scan contract source for function names decorated with @export.
- * Walks each `def` line and looks at the consecutive decorator block above it.
- */
-export function exportedFunctionNames(source: string): Set<string> {
-  const names = new Set<string>();
-  const lines = source.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^\s*def\s+([A-Za-z_]\w*)\s*\(/);
-    if (!m) continue;
-    for (let j = i - 1; j >= 0; j--) {
-      const stripped = lines[j].trim();
-      if (stripped === "") continue;
-      if (!stripped.startsWith("@")) break;
-      if (/^@export\b/.test(stripped)) {
-        names.add(m[1]);
-        break;
-      }
-    }
-  }
-  return names;
 }
 
 export async function getState(key: string): Promise<unknown> {

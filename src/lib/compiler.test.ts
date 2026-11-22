@@ -164,9 +164,10 @@ describe("WASM compiler integration", () => {
   });
 
   it("returns structured diagnostics for editor markers", () => {
+    const source = "value = 1\n\n@export\ndef set_value():\n    global value\n    value = 2\n";
     const diagnostics = diagnoseContract(
       "con_bad",
-      "value = 1\n\n@export\ndef set_value():\n    global value\n    value = 2\n"
+      source,
     );
 
     expect(diagnostics).toEqual(
@@ -178,12 +179,30 @@ describe("WASM compiler integration", () => {
       ])
     );
 
-    const marker = toEditorDiagnostic(diagnostics[0]!);
+    const marker = toEditorDiagnostic(diagnostics[0]!, source.split("\n"));
     expect(marker).toMatchObject({
       severity: "error",
       code: diagnostics[0]!.code,
     });
     expect(marker.line).toBeGreaterThan(0);
     expect(marker.col).toBeGreaterThan(0);
+  });
+
+  it("marks the unsupported expression after a non-BMP character", () => {
+    const body = '    return ("😀", lambda: 1)';
+    const lines = ["@export", "def sample():", body];
+    const diagnostics = diagnoseContract("con_sample", lines.join("\n"));
+    const marker = toEditorDiagnostic(diagnostics[0]!, lines);
+
+    expect(marker).toMatchObject({
+      line: 3,
+      col: body.indexOf("lambda") + 1,
+      endCol: body.indexOf(")") + 1,
+    });
+  });
+
+  it("places compiler diagnostics without a range at the first position", () => {
+    const marker = toEditorDiagnostic({ severity: "warning", code: "W1", message: "warning" }, []);
+    expect(marker).toMatchObject({ severity: "warning", line: 1, col: 1, endLine: 1, endCol: 1 });
   });
 });

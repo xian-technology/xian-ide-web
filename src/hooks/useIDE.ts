@@ -289,23 +289,18 @@ export function useIDE() {
     async (contractName: string) => {
       const requestId = ++explorerRequestRef.current;
       try {
-        const [source, methods, vars] = await Promise.all([
-          rpc.getContractSource(contractName),
+        const [methods, vars] = await Promise.all([
           rpc.getContractMethods(contractName),
           rpc.getContractVars(contractName),
         ]);
         if (requestId !== explorerRequestRef.current) return;
-        const exported = source ? rpc.exportedFunctionNames(source) : null;
-        const callable = exported
-          ? methods.filter((m) => exported.has(m.name))
-          : methods;
         const allVars = [...vars.variables, ...vars.hashes];
-        setLoadedMethods(callable);
+        setLoadedMethods(methods);
         setLoadedVars(allVars);
         setExplorerContract(contractName);
         log(
           "info",
-          `${contractName}: ${callable.length} callable, ${allVars.length} variables`
+          `${contractName}: ${methods.length} callable, ${allVars.length} variables`
         );
       } catch (e) {
         if (requestId !== explorerRequestRef.current) return;
@@ -464,7 +459,8 @@ export function useIDE() {
     setChecking(true);
     try {
       const result = await diagnoseContractInBrowser(moduleName, activeFile.code);
-      const editorDiagnostics = result.map(toEditorDiagnostic);
+      const sourceLines = activeFile.code.split(/\r\n|\r|\n/);
+      const editorDiagnostics = result.map((diagnostic) => toEditorDiagnostic(diagnostic, sourceLines));
       if (editorDiagnostics.length === 0) {
         log("success", "Compiler check passed — no diagnostics");
         setDiagnosticsByFile((prev) => ({ ...prev, [fileId]: [] }));

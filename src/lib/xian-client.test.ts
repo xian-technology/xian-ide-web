@@ -2,7 +2,40 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { XianClient } from "@xian-tech/client";
 
-import { requireChainId } from "./xian-client";
+import { getContractMethods, requireChainId } from "./xian-client";
+
+describe("contract explorer call targets", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("exposes only exported methods, using the node's compiled contract", async () => {
+    const exported = { name: "lookup", arguments: [{ name: "account", type: "str" }] };
+    vi.spyOn(XianClient.prototype, "getContractMethods").mockResolvedValue([
+      { name: "seed", arguments: [] },
+      exported,
+      { name: "helper", arguments: [] },
+    ]);
+    vi.spyOn(XianClient.prototype, "getContractIr").mockResolvedValue(JSON.stringify({
+      functions: [
+        { name: "seed", visibility: "construct" },
+        { name: "lookup", visibility: "export" },
+        { name: "helper", visibility: "private" },
+      ],
+    }));
+
+    await expect(getContractMethods("con_example")).resolves.toEqual([exported]);
+  });
+
+  it("lists no call targets when the contract has no compiled IR", async () => {
+    vi.spyOn(XianClient.prototype, "getContractMethods").mockResolvedValue([
+      { name: "helper", arguments: [] },
+    ]);
+    vi.spyOn(XianClient.prototype, "getContractIr").mockResolvedValue(null);
+
+    await expect(getContractMethods("con_example")).resolves.toEqual([]);
+  });
+});
 
 describe("signing chain id", () => {
   afterEach(() => {
